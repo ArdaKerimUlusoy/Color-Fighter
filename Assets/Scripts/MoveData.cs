@@ -2,7 +2,7 @@ using UnityEngine;
 
 public enum HitLevel { Mid, Low, High }
 
-public enum AttackPose { StandPunch, StandKick, CrouchPunch, CrouchKick, AirPunch, AirKick }
+public enum AttackPose { StandPunch, StandKick, CrouchPunch, CrouchKick, AirPunch, AirKick, ComboRushA, ComboRushB, ComboFinisher }
 
 [System.Serializable]
 public class MoveData
@@ -56,6 +56,8 @@ public class MoveData
     public float launch = 0f;
     [Tooltip("İsabet ederse tekme ile iptal edilebilir (kombo).")]
     public bool cancelable = false;
+    [Tooltip("Kombo saldırısı (Color Rush) parçası: hasar ölçeklenmez, bloklansa da biraz hasar verir.")]
+    public bool isSuper = false;
 
     #endregion
 

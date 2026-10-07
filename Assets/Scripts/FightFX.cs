@@ -38,7 +38,8 @@ public class FightFX : MonoBehaviour
     Transform sparkRoot;
     AudioSource[] sources;
     int nextSource;
-    AudioClip sHitLight, sHitHeavy, sBlock, sWhiff, sKO, sLand, sBlip, sFight, sMenuMove, sMenuSelect;
+    AudioClip sHitLight, sHitHeavy, sBlock, sWhiff, sKO, sLand, sBlip, sFight, sMenuMove, sMenuSelect, sReady, sSuper, sKOVoice, sBoom;
+
     readonly List<Spark> sparks = new List<Spark>();
     readonly System.Random rng = new System.Random(1234);
 
@@ -67,6 +68,7 @@ public class FightFX : MonoBehaviour
             sources[i].spatialBlend = 0f;
         }
         GenerateSounds();
+
     }
 
     void Start() { EnsureInit(); }
@@ -96,8 +98,19 @@ public class FightFX : MonoBehaviour
 
     #region Olaylar
 
-    public void OnHit(Vector3 p, MoveData m, int combo)
+    public void OnHit(Vector3 p, MoveData m, int combo, Color? tint = null)
     {
+        if (tint.HasValue)
+        {
+            // Kombo saldırısı isabeti: oyuncu renginde büyük kıvılcım.
+            AddHitstop(m.hitstop);
+            Shake(m.IsHeavy ? 0.2f : 0.09f);
+            SpawnSpark(p, tint.Value, m.IsHeavy ? 1.0f : 0.7f, m.IsHeavy ? 16 : 12);
+            SpawnSpark(p, Color.white, m.IsHeavy ? 0.5f : 0.35f, 6);
+            Play(sHitHeavy, 0.9f + Mathf.Min(combo - 1, 6) * 0.06f);
+            if (m.IsHeavy) { Play(sSuper, 1.6f, 0.5f); OnFlash?.Invoke(); }
+            return;
+        }
         AddHitstop(m.hitstop);
         Shake(m.IsHeavy ? 0.12f : 0.05f);
         SpawnSpark(p, m.IsHeavy ? new Color(1f, 0.8f, 0.25f) : Color.white, m.IsHeavy ? 0.55f : 0.35f, m.IsHeavy ? 8 : 5);
@@ -117,17 +130,43 @@ public class FightFX : MonoBehaviour
         Play(sWhiff, m.IsHeavy ? 0.75f : 1.15f, 0.5f);
     }
 
+    public void OnComboReady(Vector3 p, Color c)
+    {
+        SpawnSpark(p, Color.Lerp(c, Color.white, 0.4f), 0.5f, 10);
+        Play(sReady, 1f);
+    }
+
+    public void OnComboUnleash(Vector3 p, Color c)
+    {
+        AddHitstop(22);
+        Shake(0.08f);
+        SpawnSpark(p, c, 1.2f, 16);
+        SpawnSpark(p, Color.white, 0.6f, 8);
+        Play(sSuper, 1f);
+        ArcadeAmbience.CheerAll(1.2f);
+    }
+
     public void OnKO(Vector3 p)
     {
+        ArcadeAmbience.CheerAll(3f);
         AddHitstop(12);
         Shake(0.3f);
         SpawnSpark(p, Color.white, 0.9f, 12);
         Play(sHitHeavy, 0.8f);
-        Play(sKO, 1f);
+        Play(sBoom, 1f);
+        Play(sKO, 1f, 0.5f);
         OnFlash?.Invoke();
         StopAllCoroutines();
         StartCoroutine(SlowMo());
+        StartCoroutine(KOVoice());
     }
+
+    IEnumerator KOVoice()
+    {
+        yield return new WaitForSecondsRealtime(0.18f);   // darbeden hemen sonra spiker
+        Play(sKOVoice, 1f, 1.2f);
+    }
+
 
     public void OnBodyLand(Vector3 p)
     {
@@ -230,6 +269,7 @@ public class FightFX : MonoBehaviour
 
     #region Ses
 
+
     void Play(AudioClip clip, float pitch, float vol = 1f)
     {
         EnsureInit();
@@ -318,12 +358,134 @@ public class FightFX : MonoBehaviour
 
         sMenuMove = Make("MenuMove", 0.05f, (t, p) => Mathf.Sign(Mathf.Sin(TAU * 660f * t)) * 0.25f * (1f - p));
 
+        sReady = Make("ComboReady", 0.26f, (t, p) =>
+        {
+            float f = p < 0.33f ? 880f : p < 0.66f ? 1175f : 1760f;
+            return Mathf.Sign(Mathf.Sin(TAU * f * t)) * 0.3f * (1f - p * 0.5f);
+        });
+
+        float ph4 = 0f;
+        sSuper = Make("ComboRush", 0.55f, (t, p) =>
+        {
+            ph4 += Mathf.Lerp(180f, 1400f, p * p) / Rate;
+            return (Mathf.Sign(Mathf.Sin(TAU * ph4)) * 0.35f + Noise() * 0.18f * (1f - p)) * (1f - p * 0.3f);
+        });
+
+        sKOVoice = MakeKOVoice();
+        sBoom = MakeBoom();
+
         sMenuSelect = Make("MenuSelect", 0.16f, (t, p) =>
         {
             float f = p < 0.5f ? 784f : 1175f;
             return Mathf.Sign(Mathf.Sin(TAU * f * t)) * 0.3f * (1f - p * 0.6f);
         });
     }
+
+    #region Sentez: spiker ve darbe
+
+    /// <summary>İki kutuplu rezonatör (formant filtresi). Tepe kazancı her frekansta 1'e normalize.</summary>
+    struct Resonator
+    {
+        float y1, y2;
+        public float Step(float x, float freq, float bw)
+        {
+            float r = Mathf.Exp(-Mathf.PI * bw / Rate);
+            float th = 2f * Mathf.PI * freq / Rate;
+            float a1 = 2f * r * Mathf.Cos(th);
+            float a2 = -r * r;
+            // |1 - a1 e^-jθ - a2 e^-2jθ| : tepe noktasındaki kazancı hesaplayıp böl
+            float re = 1f - a1 * Mathf.Cos(th) - a2 * Mathf.Cos(2f * th);
+            float im = a1 * Mathf.Sin(th) + a2 * Mathf.Sin(2f * th);
+            float norm = Mathf.Sqrt(re * re + im * im);
+            float y = norm * x + a1 * y1 + a2 * y2;
+            y2 = y1; y1 = y;
+            return y;
+        }
+    }
+
+    AudioClip ToClip(string name, float[] data, int levels)
+    {
+        float peak = 0.0001f;
+        foreach (var v in data) peak = Mathf.Max(peak, Mathf.Abs(v));
+        for (int i = 0; i < data.Length; i++)
+        {
+            float v = data[i] / peak * 0.9f;
+            data[i] = levels > 0 ? Mathf.Round(v * levels) / levels : v;   // hafif retro bit-crush
+        }
+        var clip = AudioClip.Create(name, data.Length, 1, Rate, false);
+        clip.SetData(data, 0);
+        return clip;
+    }
+
+    /// <summary>"K.O.!" — retro robotik spiker: "kay" + uzun "oh", düşen ton, yankı.</summary>
+    AudioClip MakeKOVoice()
+    {
+        const float dur = 1.25f;
+        int n = Mathf.CeilToInt(dur * Rate);
+        var dry = new float[n];
+        var f1 = new Resonator(); var f2 = new Resonator(); var f3 = new Resonator();
+        float phase = 0f, prevSaw = 0f;
+        for (int i = 0; i < n; i++)
+        {
+            float t = i / (float)Rate;
+            float s = 0f;
+
+            // "K": kısa, sert nefes patlaması
+            if (t < 0.045f) s += Noise() * (1f - t / 0.045f) * 0.9f;
+
+            // Sesli kısım: "eı" (0.05-0.28) -> "oo" (0.30-0.85)
+            if (t >= 0.04f && t < 0.9f)
+            {
+                float pitch = t < 0.3f ? Mathf.Lerp(150f, 135f, (t - 0.04f) / 0.26f) : Mathf.Lerp(140f, 92f, (t - 0.3f) / 0.6f);
+                pitch *= 1f + 0.015f * Mathf.Sin(t * 33f);                       // hafif titreşim
+                phase += pitch / Rate;
+                float saw = 2f * (phase - Mathf.Floor(phase)) - 1f;
+                float pulse = saw - prevSaw;                                      // gırtlak darbeleri (düz spektrum)
+                prevSaw = saw;
+                float k = Mathf.Clamp01((t - 0.25f) / 0.1f);                      // "eı" -> "o" geçişi
+                float F1 = Mathf.Lerp(Mathf.Lerp(550f, 420f, Mathf.Clamp01((t - 0.05f) / 0.2f)), 480f, k);
+                float F2 = Mathf.Lerp(Mathf.Lerp(1850f, 2150f, Mathf.Clamp01((t - 0.05f) / 0.2f)), 850f, k);
+                float F3 = Mathf.Lerp(2700f, 2450f, k);
+                float v = f1.Step(pulse, F1, 90f) * 1.0f + f2.Step(pulse, F2, 120f) * Mathf.Lerp(0.6f, 0.35f, k) + f3.Step(pulse, F3, 160f) * 0.2f;
+                float env = Mathf.Clamp01((t - 0.04f) / 0.03f) * Mathf.Clamp01((0.9f - t) / 0.25f);
+                if (t > 0.27f && t < 0.31f) env *= 0.55f;                           // hece arası kısa boşluk
+                s += v * env * 6f;
+            }
+            dry[i] = s;
+        }
+
+        // Salon yankısı
+        var wet = new float[n];
+        int d1 = Mathf.RoundToInt(0.11f * Rate), d2 = Mathf.RoundToInt(0.23f * Rate);
+        for (int i = 0; i < n; i++)
+        {
+            float v = dry[i];
+            if (i >= d1) v += wet[i - d1] * 0.38f;
+            if (i >= d2) v += dry[i - d2] * 0.22f;
+            wet[i] = v;
+        }
+        return ToClip("KOVoice", wet, 48);
+    }
+
+    /// <summary>Derin, uzun K.O. darbesi.</summary>
+    AudioClip MakeBoom()
+    {
+        int n = Mathf.CeilToInt(0.9f * Rate);
+        var data = new float[n];
+        float ph = 0f, lp = 0f;
+        for (int i = 0; i < n; i++)
+        {
+            float t = i / (float)Rate, p = t / 0.9f;
+            ph += Mathf.Lerp(90f, 32f, Mathf.Sqrt(p)) / Rate;
+            lp += (Noise() - lp) * 0.08f;
+            float env = Mathf.Exp(-4.5f * t);
+            data[i] = (Mathf.Sin(2f * Mathf.PI * ph) * 1.0f + lp * 1.4f) * env;
+        }
+        return ToClip("KOBoom", data, 32);
+    }
+
+
+    #endregion
 
     #endregion
 }

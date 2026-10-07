@@ -15,6 +15,33 @@ public class FightHUD : MonoBehaviour
     [SerializeField, HideInInspector] string[] pauseLabels;
     Font font;
 
+    // Oyun sırasında eklenen parçalar (önceden kurulmuş sahnelerde de çalışsın diye runtime'da oluşturulur).
+    bool extrasBuilt;
+    Text name1, name2, comboLabel1, comboLabel2;
+    Image fillImg1, fillImg2;
+    Image[] comboPips1, comboPips2;
+    RectTransform comboTimer1, comboTimer2;
+    string comboKey1 = "H", comboKey2 = ";";
+    GameObject selectGroup;
+    FighterPalette.Entry[] palette;
+    Image[] cellFrames, cellBGs;
+    Text[] cellTag1, cellTag2;
+    Text selName1, selName2, selStatus1, selStatus2;
+    int selCur1, selCur2;
+    bool selLock1, selLock2;
+    float deny1Until, deny2Until;
+    bool selShowCur2 = true, cpuMode;
+    Text koText;
+    RectTransform koBand;
+    Image koBandImg;
+    float koStart = -1f;
+    GameObject modeGroup;
+    Text[] modeOptions;
+    Text modeDesc;
+    int modeSel;
+    static readonly string[] ModeLabels = { "1P  VS  2P", "1P  VS  CPU" };
+    static readonly string[] ModeDescs = { "TWO PLAYERS ON ONE KEYBOARD", "FIGHT THE COMPUTER" };
+
     #endregion
 
     #region Durum
@@ -24,10 +51,14 @@ public class FightHUD : MonoBehaviour
     float centerHideAt = -1f, comboHide1, comboHide2, flashA;
     float titleShownAt;
     int pauseSelection;
+    Color flashColor = Color.white;
 
     static readonly Color PipOff = new Color(0.25f, 0.25f, 0.3f);
     static readonly Color PipOn = new Color(1f, 0.85f, 0.2f);
     static readonly Color OptionOff = new Color(0.55f, 0.55f, 0.6f);
+    static readonly Color Cursor1 = new Color(1f, 0.62f, 0.12f);
+    static readonly Color Cursor2 = new Color(0.25f, 0.9f, 1f);
+    static readonly Color CellIdle = new Color(0.22f, 0.2f, 0.3f);
 
     #endregion
 
@@ -101,7 +132,7 @@ public class FightHUD : MonoBehaviour
         pressStart.text = "PRESS PUNCH TO START";
 
         var hint = Txt(root, "Controls", new Vector2(0, 0), new Vector2(1, 0), new Vector2(0, 22), new Vector2(0, 36), 9, TextAnchor.MiddleCenter, new Color(0.8f, 0.8f, 0.85f));
-        hint.text = "<color=#FF5050>RED</color> WASD + F G      <color=#5A8CFF>BLUE</color> ARROWS + K L      ESC PAUSE";
+        hint.text = "<color=#FFA020>1P</color> WASD + F G H      <color=#40E0FF>2P</color> ARROWS + K L ;      ESC PAUSE";
         var credit = Txt(root, "Credit", new Vector2(0, 0), new Vector2(1, 0), new Vector2(0, 6), new Vector2(0, 18), 9, TextAnchor.MiddleCenter, new Color(1f, 0.85f, 0.2f));
         credit.text = "CREDIT 02";
 
@@ -152,6 +183,7 @@ public class FightHUD : MonoBehaviour
 
     public void ShowCenter(string text, Color c, float duration)
     {
+        HideKO();
         centerText.text = text;
         centerText.color = c;
         centerText.enabled = true;
@@ -176,10 +208,17 @@ public class FightHUD : MonoBehaviour
         for (int i = 0; i < pips2.Length; i++) pips2[i].color = i < w2 ? PipOn : PipOff;
     }
 
-    public void Flash() { flashA = 0.85f; }
+    public void Flash() { flashColor = Color.white; flashA = 0.85f; }
+
+    public void Flash(Color c, float alpha)
+    {
+        flashColor = c;
+        flashA = Mathf.Max(flashA, alpha);
+    }
 
     public void ShowTitle(bool on)
     {
+        HideKO();
         titleGroup.SetActive(on);
         fightGroup.SetActive(!on);
         if (on)
@@ -205,6 +244,423 @@ public class FightHUD : MonoBehaviour
 
     #endregion
 
+    #region Ekstralar: oyuncu renkleri ve kombo sayacı
+
+    /// <summary>Seçim ekranını ve kombo sayacını kurar. Birden fazla çağrılabilir.</summary>
+    public void EnsureExtras(FighterPalette.Entry[] pal, int comboPips, string key1, string key2)
+    {
+        if (!string.IsNullOrEmpty(key1)) comboKey1 = key1;
+        if (!string.IsNullOrEmpty(key2)) comboKey2 = key2;
+        if (extrasBuilt) return;
+        extrasBuilt = true;
+        palette = pal;
+        if (font == null) font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+
+        var canvasRoot = GetComponent<RectTransform>();
+        var fightRoot = (RectTransform)fightGroup.transform;
+
+        name1 = FindText(fightRoot, "Name1");
+        name2 = FindText(fightRoot, "Name2");
+        fillImg1 = fill1 != null ? fill1.GetComponent<Image>() : null;
+        fillImg2 = fill2 != null ? fill2.GetComponent<Image>() : null;
+
+        BuildComboMeter(fightRoot, true, Mathf.Max(1, comboPips), out comboLabel1, out comboPips1, out comboTimer1);
+        BuildComboMeter(fightRoot, false, Mathf.Max(1, comboPips), out comboLabel2, out comboPips2, out comboTimer2);
+
+        var hint = titleGroup != null ? FindText((RectTransform)titleGroup.transform, "Controls") : null;
+        var credit = titleGroup != null ? FindText((RectTransform)titleGroup.transform, "Credit") : null;
+        if (hint != null)
+        {
+            // Kontrol yazısı: ekranın en altına, daha büyük ve net
+            hint.text = "<color=#FFA020>1P</color> WASD + F G " + comboKey1 + "    <color=#40E0FF>2P</color> ARROWS + K L " + comboKey2 + "    ESC PAUSE";
+            hint.color = Color.white;
+            hint.fontSize = 10;
+            var hr = hint.rectTransform;
+            hr.offsetMin = new Vector2(0, 13); hr.offsetMax = new Vector2(0, 27);
+            hint.GetComponent<Outline>().effectDistance = new Vector2(1f, -1f);
+
+            if (credit != null)
+            {
+                credit.fontSize = 8;
+                var cr = credit.rectTransform;
+                cr.offsetMin = new Vector2(0, 2); cr.offsetMax = new Vector2(0, 12);
+            }
+
+            // Arka plana karışmasın: altına neredeyse opak koyu şerit
+            var titleRoot = (RectTransform)titleGroup.transform;
+            var band = Rect("ControlsBand", titleRoot, new Vector2(0, 0), new Vector2(1, 0), new Vector2(0, 0), new Vector2(0, 30));
+            Img(band, new Color(0.01f, 0.01f, 0.05f, 0.92f));
+            Img(Rect("BandLine", band, new Vector2(0, 1), new Vector2(1, 1), new Vector2(0, -1), Vector2.zero), new Color(1f, 0.85f, 0.2f, 0.9f));
+            band.SetSiblingIndex(hint.transform.GetSiblingIndex());
+        }
+
+        BuildSelect(canvasRoot);
+        if (titleGroup != null) selectGroup.transform.SetSiblingIndex(titleGroup.transform.GetSiblingIndex() + 1);
+        BuildMode(canvasRoot);
+        modeGroup.transform.SetSiblingIndex(selectGroup.transform.GetSiblingIndex() + 1);
+        BuildKO(canvasRoot);
+        flash.transform.SetAsLastSibling();
+    }
+
+    public void SetPlayers(string n1, string n2, Color c1, Color c2)
+    {
+        if (name1 != null) { name1.text = n1; name1.color = c1; }
+        if (name2 != null) { name2.text = n2; name2.color = c2; }
+        if (fillImg1 != null) fillImg1.color = Color.Lerp(c1, Color.white, 0.15f);
+        if (fillImg2 != null) fillImg2.color = Color.Lerp(c2, Color.white, 0.15f);
+    }
+
+    public void SetComboMeter(int side, int streak, bool ready, float readyFraction, Color c)
+    {
+        if (!extrasBuilt) return;
+        var label = side == 0 ? comboLabel1 : comboLabel2;
+        var pips = side == 0 ? comboPips1 : comboPips2;
+        var timer = side == 0 ? comboTimer1 : comboTimer2;
+        string key = side == 0 ? comboKey1 : comboKey2;
+
+        if (ready)
+        {
+            bool blink = Mathf.Repeat(Time.unscaledTime, 0.4f) < 0.25f;
+            label.text = "COMBO READY! [" + key + "]";
+            label.color = blink ? Color.white : Color.Lerp(c, Color.white, 0.35f);
+            foreach (var p in pips) p.enabled = false;
+            timer.gameObject.SetActive(true);
+            float v = Mathf.Clamp01(readyFraction);
+            if (side == 0) { timer.anchorMin = new Vector2(0f, 0f); timer.anchorMax = new Vector2(v, 1f); }
+            else { timer.anchorMin = new Vector2(1f - v, 0f); timer.anchorMax = new Vector2(1f, 1f); }
+            timer.offsetMin = timer.offsetMax = Vector2.zero;
+            timer.GetComponent<Image>().color = Color.Lerp(c, Color.white, 0.3f);
+        }
+        else
+        {
+            label.text = "COMBO";
+            label.color = new Color(0.75f, 0.75f, 0.8f);
+            for (int i = 0; i < pips.Length; i++)
+            {
+                pips[i].enabled = true;
+                pips[i].color = i < streak ? Color.Lerp(c, Color.white, 0.25f) : PipOff;
+            }
+            timer.gameObject.SetActive(false);
+        }
+    }
+
+    void BuildComboMeter(RectTransform root, bool left, int count, out Text label, out Image[] pips, out RectTransform timer)
+    {
+        Vector2 a = left ? new Vector2(0, 1) : new Vector2(1, 1);
+        label = Txt(root, left ? "ComboLabel1" : "ComboLabel2", a, a,
+            left ? new Vector2(8, -47) : new Vector2(-140, -47),
+            left ? new Vector2(140, -38) : new Vector2(-8, -38),
+            8, left ? TextAnchor.MiddleLeft : TextAnchor.MiddleRight, new Color(0.75f, 0.75f, 0.8f));
+        label.text = "COMBO";
+
+        pips = new Image[count];
+        for (int i = 0; i < count; i++)
+        {
+            pips[i] = Img(Rect(left ? "ComboPip1" : "ComboPip2", root, a, a,
+                left ? new Vector2(44 + i * 11, -45) : new Vector2(-53 - i * 11, -45),
+                left ? new Vector2(53 + i * 11, -40) : new Vector2(-44 - i * 11, -40)), PipOff);
+        }
+
+        var track = Rect(left ? "ComboTimer1" : "ComboTimer2", root, a, a,
+            left ? new Vector2(8, -51) : new Vector2(-100, -51),
+            left ? new Vector2(100, -49) : new Vector2(-8, -49));
+        timer = Rect("Fill", track, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
+        Img(timer, Color.white);
+        timer.gameObject.SetActive(false);
+    }
+
+    static Text FindText(RectTransform root, string name)
+    {
+        foreach (var t in root.GetComponentsInChildren<Text>(true))
+            if (t.name == name) return t;
+        return null;
+    }
+
+    #endregion
+
+    #region Karakter seçim ekranı
+
+    void BuildSelect(RectTransform parent)
+    {
+        var root = Rect("SelectUI", parent, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
+        selectGroup = root.gameObject;
+
+        var head = Txt(root, "SelectTitle", new Vector2(0, 1), new Vector2(1, 1), new Vector2(0, -27), new Vector2(0, -5), 15, TextAnchor.MiddleCenter, new Color(1f, 0.85f, 0.2f));
+        head.text = "SELECT YOUR COLOR";
+
+        int n = palette.Length, cols = FighterPalette.Columns, rows = FighterPalette.Rows;
+        const int cell = 30, gap = 7, top = -34;
+        int gridW = cols * cell + (cols - 1) * gap;
+        int gridH = rows * cell + (rows - 1) * gap;
+        float x0 = -gridW * 0.5f;
+
+        var top2 = new Vector2(0.5f, 1f);
+        Img(Rect("GridPanel", root, top2, top2, new Vector2(x0 - 8, top - gridH - 30), new Vector2(-x0 + 8, top + 5)), new Color(0.03f, 0.01f, 0.08f, 0.72f));
+
+        cellFrames = new Image[n];
+        cellBGs = new Image[n];
+        cellTag1 = new Text[n];
+        cellTag2 = new Text[n];
+        Color skin = new Color(0.96f, 0.78f, 0.62f);
+        Color dark = new Color(0.08f, 0.08f, 0.1f);
+        for (int i = 0; i < n; i++)
+        {
+            int col = i % cols, row = i / cols;
+            float cx = x0 + col * (cell + gap);
+            float cy = top - row * (cell + gap);
+            var frame = Rect("Cell" + i, root, top2, top2, new Vector2(cx - 2, cy - cell - 2), new Vector2(cx + cell + 2, cy + 2));
+            cellFrames[i] = Img(frame, CellIdle);
+            var bg = Rect("BG", frame, Vector2.zero, Vector2.one, new Vector2(2, 2), new Vector2(-2, -2));
+            cellBGs[i] = Img(bg, new Color(0.08f, 0.05f, 0.14f));
+
+            // Mini portre: omuzlar, yüz, bandana, saç, gözler
+            Color c = palette[i].color;
+            var z = Vector2.zero;
+            Img(Rect("Shoulders", bg, z, z, new Vector2(3, 0), new Vector2(23, 7)), c);
+            Img(Rect("Face", bg, z, z, new Vector2(8, 7), new Vector2(18, 20)), skin);
+            Img(Rect("Hair", bg, z, z, new Vector2(8, 20), new Vector2(18, 23)), dark);
+            Img(Rect("Band", bg, z, z, new Vector2(7, 16), new Vector2(19, 19)), c);
+            Img(Rect("Tail", bg, z, z, new Vector2(19, 15), new Vector2(23, 18)), c);
+            Img(Rect("EyeL", bg, z, z, new Vector2(10, 12), new Vector2(12, 14)), dark);
+            Img(Rect("EyeR", bg, z, z, new Vector2(14, 12), new Vector2(16, 14)), dark);
+
+            cellTag1[i] = Txt(frame, "Tag1", new Vector2(0, 1), new Vector2(0, 1), new Vector2(-4, -6), new Vector2(14, 6), 8, TextAnchor.MiddleLeft, Cursor1);
+            cellTag1[i].text = "1P";
+            cellTag2[i] = Txt(frame, "Tag2", new Vector2(1, 0), new Vector2(1, 0), new Vector2(-14, -6), new Vector2(4, 6), 8, TextAnchor.MiddleRight, Cursor2);
+            cellTag2[i].text = "2P";
+        }
+
+        var rule = Txt(root, "ComboRule", top2, top2, new Vector2(-120, top - gridH - 26), new Vector2(120, top - gridH - 6), 7, TextAnchor.MiddleCenter, new Color(0.85f, 0.85f, 0.9f));
+        rule.text = "LAND 3 HITS IN A ROW = COMBO READY\nTHEN PRESS  1P: " + comboKey1 + "   2P: " + comboKey2 + "   OR PUNCH+KICK";
+
+        selName1 = Txt(root, "SelName1", Vector2.zero, Vector2.zero, new Vector2(8, 20), new Vector2(150, 38), 15, TextAnchor.MiddleLeft, Color.white);
+        selStatus1 = Txt(root, "SelStatus1", Vector2.zero, Vector2.zero, new Vector2(8, 6), new Vector2(150, 18), 8, TextAnchor.MiddleLeft, Color.white);
+        selName2 = Txt(root, "SelName2", new Vector2(1, 0), new Vector2(1, 0), new Vector2(-150, 20), new Vector2(-8, 38), 15, TextAnchor.MiddleRight, Color.white);
+        selStatus2 = Txt(root, "SelStatus2", new Vector2(1, 0), new Vector2(1, 0), new Vector2(-150, 6), new Vector2(-8, 18), 8, TextAnchor.MiddleRight, Color.white);
+
+        selectGroup.SetActive(false);
+    }
+
+    #region K.O. animasyonu
+
+    void BuildKO(RectTransform parent)
+    {
+        var mid = new Vector2(0f, 0.5f);
+        var mid2 = new Vector2(1f, 0.5f);
+        koBand = Rect("KOBand", parent, mid, mid2, new Vector2(0, -1), new Vector2(0, 1));
+        koBandImg = Img(koBand, new Color(0f, 0f, 0f, 0.7f));
+        Img(Rect("KOBandTop", koBand, new Vector2(0, 1), new Vector2(1, 1), new Vector2(0, -2), Vector2.zero), new Color(1f, 0.2f, 0.15f, 0.9f));
+        Img(Rect("KOBandBottom", koBand, new Vector2(0, 0), new Vector2(1, 0), Vector2.zero, new Vector2(0, 2)), new Color(1f, 0.2f, 0.15f, 0.9f));
+
+        koText = Txt(parent, "KOText", mid, mid2, new Vector2(0, -40), new Vector2(0, 40), 46, TextAnchor.MiddleCenter, new Color(1f, 0.2f, 0.15f));
+        koText.text = "K.O.";
+        koText.fontStyle = FontStyle.BoldAndItalic;
+        var o = koText.GetComponent<Outline>();
+        o.effectColor = new Color(0.15f, 0f, 0f, 1f);
+        o.effectDistance = new Vector2(2.5f, -2.5f);
+        var shadow = koText.gameObject.AddComponent<Shadow>();
+        shadow.effectColor = new Color(1f, 0.85f, 0.2f, 0.9f);
+        shadow.effectDistance = new Vector2(-1.5f, 1.5f);
+
+        flash.transform.SetAsLastSibling();
+        HideKO();
+    }
+
+    /// <summary>K.O. yazısı ekrana çarparak gelir, sallanır, kırmızı-sarı yanıp söner.</summary>
+    public void ShowKO()
+    {
+        if (koText == null) { ShowCenter("K.O.", new Color(1f, 0.2f, 0.15f), 0f); return; }
+        centerText.enabled = false;
+        koStart = Time.unscaledTime;
+        koText.enabled = true;
+        koBand.gameObject.SetActive(true);
+        Flash(Color.white, 0.9f);
+        AnimateKO();
+    }
+
+    public void HideKO()
+    {
+        koStart = -1f;
+        if (koText != null) koText.enabled = false;
+        if (koBand != null) koBand.gameObject.SetActive(false);
+    }
+
+    void AnimateKO()
+    {
+        float t = Time.unscaledTime - koStart;
+        const float slam = 0.16f;
+        var r = koText.rectTransform;
+
+        float scale, rot = 0f;
+        Vector2 shake = Vector2.zero;
+        if (t < slam)
+        {
+            float k = t / slam;
+            scale = Mathf.Lerp(4f, 0.82f, k * k);          // uzaktan ekrana çarpar
+            rot = Mathf.Lerp(-18f, 0f, k);
+        }
+        else
+        {
+            float u = t - slam;
+            scale = 1f - 0.18f * Mathf.Exp(-7f * u) * Mathf.Cos(26f * u);   // yaylanarak oturur
+            float shakeAmt = Mathf.Clamp01(1f - u / 0.4f) * 3f;
+            shake = new Vector2(Random.Range(-shakeAmt, shakeAmt), Random.Range(-shakeAmt, shakeAmt));
+        }
+        r.localScale = Vector3.one * scale;
+        r.localRotation = Quaternion.Euler(0f, 0f, rot);
+        r.anchoredPosition = new Vector2(Mathf.Round(shake.x), Mathf.Round(shake.y));
+
+        bool flicker = t < 0.9f && Mathf.Repeat(t, 0.12f) < 0.06f;
+        koText.color = flicker ? new Color(1f, 0.85f, 0.2f) : new Color(1f, 0.2f, 0.15f);
+
+        float h = Mathf.Lerp(1f, 30f, Mathf.Clamp01((t - 0.05f) / 0.18f));
+        koBand.offsetMin = new Vector2(0, -h);
+        koBand.offsetMax = new Vector2(0, h);
+    }
+
+    #endregion
+
+    #region Mod seçimi
+
+    void BuildMode(RectTransform parent)
+    {
+        var root = Rect("ModeUI", parent, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
+        modeGroup = root.gameObject;
+        var mid = new Vector2(0.5f, 0.5f);
+
+        Img(Rect("Dim", root, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero), new Color(0f, 0f, 0.03f, 0.55f));
+        Img(Rect("Frame", root, mid, mid, new Vector2(-96, -58), new Vector2(96, 64)), new Color(1f, 0.85f, 0.2f, 0.9f));
+        Img(Rect("Panel", root, mid, mid, new Vector2(-94, -56), new Vector2(94, 62)), new Color(0.05f, 0.02f, 0.11f, 0.97f));
+
+        var title = Txt(root, "ModeTitle", mid, mid, new Vector2(-94, 34), new Vector2(94, 60), 18, TextAnchor.MiddleCenter, new Color(1f, 0.85f, 0.2f));
+        title.text = "SELECT MODE";
+
+        modeOptions = new Text[ModeLabels.Length];
+        for (int i = 0; i < ModeLabels.Length; i++)
+        {
+            float y = 14 - i * 24;
+            modeOptions[i] = Txt(root, "Mode" + i, mid, mid, new Vector2(-94, y - 10), new Vector2(94, y + 10), 15, TextAnchor.MiddleCenter, OptionOff);
+        }
+        modeDesc = Txt(root, "ModeDesc", mid, mid, new Vector2(-94, -38), new Vector2(94, -26), 8, TextAnchor.MiddleCenter, new Color(0.75f, 0.85f, 1f));
+        var hint = Txt(root, "ModeHint", mid, mid, new Vector2(-94, -54), new Vector2(94, -42), 8, TextAnchor.MiddleCenter, new Color(0.7f, 0.7f, 0.75f));
+        hint.text = "UP/DOWN  -  PUNCH SELECT  -  ESC BACK";
+
+        modeGroup.SetActive(false);
+    }
+
+    public void ShowMode(bool on)
+    {
+        if (modeGroup == null) return;
+        modeGroup.SetActive(on);
+        if (on)
+        {
+            titleGroup.SetActive(false);
+            fightGroup.SetActive(false);
+            if (selectGroup != null) selectGroup.SetActive(false);
+            centerText.enabled = false;
+            RefreshMode();
+        }
+    }
+
+    public void SetModeSelection(int i) { modeSel = i; RefreshMode(); }
+
+    void RefreshMode()
+    {
+        bool cursorOn = Mathf.Repeat(Time.unscaledTime, 0.5f) < 0.35f;
+        for (int i = 0; i < modeOptions.Length; i++)
+        {
+            bool sel = i == modeSel;
+            modeOptions[i].color = sel ? Color.white : OptionOff;
+            modeOptions[i].text = sel && cursorOn ? "> " + ModeLabels[i] + " <" : ModeLabels[i];
+        }
+        modeDesc.text = ModeDescs[Mathf.Clamp(modeSel, 0, ModeDescs.Length - 1)];
+    }
+
+    /// <summary>CPU modunda seçim ekranı ve kombo sayacı "2P" yerine "CPU" gösterir.</summary>
+    public void SetCpuMode(bool on, string key2)
+    {
+        cpuMode = on;
+        if (!string.IsNullOrEmpty(key2)) comboKey2 = key2;
+        if (cellTag2 != null) foreach (var t in cellTag2) t.text = on ? "CPU" : "2P";
+    }
+
+    #endregion
+
+    public void ShowSelect(bool on)
+    {
+        if (selectGroup == null) return;
+        selectGroup.SetActive(on);
+        if (on)
+        {
+            titleGroup.SetActive(false);
+            fightGroup.SetActive(false);
+            centerText.enabled = false;
+            deny1Until = deny2Until = 0f;
+            RefreshSelect();
+        }
+    }
+
+    public void SetSelect(int cur1, int cur2, bool lock1, bool lock2, bool showCur2 = true)
+    {
+        selCur1 = cur1; selCur2 = cur2;
+        selLock1 = lock1; selLock2 = lock2;
+        selShowCur2 = showCur2;
+    }
+
+    public void SelectDenied(int side)
+    {
+        if (side == 0) deny1Until = Time.unscaledTime + 0.6f;
+        else deny2Until = Time.unscaledTime + 0.6f;
+    }
+
+    void RefreshSelect()
+    {
+        float now = Time.unscaledTime;
+        bool blink = Mathf.Repeat(now, 0.5f) < 0.3f;
+        for (int i = 0; i < cellFrames.Length; i++)
+        {
+            bool h1 = i == selCur1, h2 = selShowCur2 && i == selCur2;
+            Color frame = CellIdle;
+            if (h1 && h2) frame = blink ? Cursor1 : Cursor2;
+            else if (h1) frame = selLock1 || blink ? Cursor1 : Color.Lerp(Cursor1, CellIdle, 0.5f);
+            else if (h2) frame = selLock2 || blink ? Cursor2 : Color.Lerp(Cursor2, CellIdle, 0.5f);
+            cellFrames[i].color = frame;
+
+            bool taken = (selLock1 && h1) || (selLock2 && h2);
+            cellBGs[i].color = taken ? Color.Lerp(new Color(0.08f, 0.05f, 0.14f), palette[i].color, 0.35f) : new Color(0.08f, 0.05f, 0.14f);
+            cellTag1[i].enabled = h1;
+            cellTag2[i].enabled = h2;
+        }
+
+        SetSelPanel(selName1, selStatus1, selCur1, selLock1, now < deny1Until, blink, "1P ");
+        if (cpuMode && !selShowCur2)
+        {
+            selName2.text = "CPU";
+            selName2.color = Color.white;
+            selStatus2.text = "WAITING FOR 1P";
+            selStatus2.color = new Color(0.7f, 0.7f, 0.75f);
+        }
+        else if (cpuMode && !selLock2)
+        {
+            SetSelPanel(selName2, selStatus2, selCur2, false, false, blink, "CPU ");
+            selStatus2.text = "CHOOSING...";
+        }
+        else SetSelPanel(selName2, selStatus2, selCur2, selLock2, now < deny2Until, blink, cpuMode ? "CPU " : "2P ");
+    }
+
+    void SetSelPanel(Text name, Text status, int cur, bool locked, bool denied, bool blink, string tag)
+    {
+        var e = palette[Mathf.Clamp(cur, 0, palette.Length - 1)];
+        bool left = tag == "1P ";
+        name.text = left ? tag + e.name : e.name + " " + tag.Trim();
+        name.color = Color.Lerp(e.color, Color.white, 0.15f);
+        if (denied) { status.text = "TAKEN!"; status.color = new Color(1f, 0.3f, 0.25f); }
+        else if (locked) { status.text = tag.StartsWith("CPU") ? "READY!" : "READY!  (KICK: BACK)"; status.color = new Color(1f, 0.85f, 0.2f); }
+        else { status.text = blink ? "PRESS PUNCH" : ""; status.color = Color.white; }
+    }
+
+    #endregion
+
     #region Güncelleme
 
     void Update()
@@ -215,7 +671,7 @@ public class FightHUD : MonoBehaviour
         chipv1 = target1 > chipv1 ? target1 : (chipDelay1 <= 0f ? Mathf.MoveTowards(chipv1, target1, dt * 0.6f) : chipv1);
         chipv2 = target2 > chipv2 ? target2 : (chipDelay2 <= 0f ? Mathf.MoveTowards(chipv2, target2, dt * 0.6f) : chipv2);
 
-        SetBar(fill1, target1, true);  SetBar(chip1, chipv1, true);
+        SetBar(fill1, target1, true); SetBar(chip1, chipv1, true);
         SetBar(fill2, target2, false); SetBar(chip2, chipv2, false);
 
         if (centerText.enabled)
@@ -228,10 +684,13 @@ public class FightHUD : MonoBehaviour
         UpdateCombo(combo2, comboHide2, dt);
 
         flashA = Mathf.MoveTowards(flashA, 0f, dt * 2.5f);
-        flash.color = new Color(1f, 1f, 1f, flashA);
+        flash.color = new Color(flashColor.r, flashColor.g, flashColor.b, flashA);
 
         if (titleGroup.activeSelf) AnimateTitle();
         if (pauseGroup.activeSelf) RefreshPauseOptions(Mathf.Repeat(Time.unscaledTime, 0.5f) < 0.35f);
+        if (selectGroup != null && selectGroup.activeSelf) RefreshSelect();
+        if (modeGroup != null && modeGroup.activeSelf) RefreshMode();
+        if (koStart >= 0f && koText != null) AnimateKO();
     }
 
     void AnimateTitle()

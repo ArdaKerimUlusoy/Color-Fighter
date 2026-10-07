@@ -59,16 +59,47 @@ public class Fighter : MonoBehaviour
         hitboxOffset = new Vector2(0.7f, 0.6f), hitboxSize = new Vector2(0.7f, 0.45f),
         hitstun = 18, blockstun = 14, hitstop = 9, pushback = 3f };
 
+    [Header("Kombo sistemi")]
+    [Tooltip("Peş peşe kaç isabetli vuruştan sonra kombo hakkı açılır.")]
+    public int comboHitsRequired = 3;
+    [Tooltip("İki isabet arasında geçebilecek en uzun süre (frame). Aşılırsa seri sıfırlanır.")]
+    public int comboChainWindow = 75;
+    [Tooltip("Kombo hakkı açıldıktan sonra kullanılabileceği süre (frame).")]
+    public int comboReadyFrames = 360;
+    [Tooltip("Bitiriş aparkatında yukarı zıplama hızı.")]
+    public float finisherHop = 5.5f;
+
+    public MoveData comboRush1 = new MoveData {
+        name = "Color Rush", pose = AttackPose.ComboRushA,
+        startup = 3, active = 4, recovery = 12, damage = 9, level = HitLevel.Mid,
+        hitboxOffset = new Vector2(0.8f, 1.2f), hitboxSize = new Vector2(0.8f, 0.5f),
+        hitstun = 26, blockstun = 18, hitstop = 7, pushback = 0.6f, lunge = 9f, isSuper = true };
+
+    public MoveData comboRush2 = new MoveData {
+        name = "Spin Kick", pose = AttackPose.ComboRushB,
+        startup = 6, active = 4, recovery = 12, damage = 9, level = HitLevel.Mid,
+        hitboxOffset = new Vector2(0.95f, 1.2f), hitboxSize = new Vector2(0.9f, 0.5f),
+        hitstun = 26, blockstun = 18, hitstop = 8, pushback = 0.8f, lunge = 3f, isSuper = true };
+
+    public MoveData comboFinisher = new MoveData {
+        name = "Burst Uppercut", pose = AttackPose.ComboFinisher,
+        startup = 6, active = 6, recovery = 26, damage = 20, level = HitLevel.Mid,
+        hitboxOffset = new Vector2(0.75f, 1.4f), hitboxSize = new Vector2(1.0f, 1.1f),
+        hitstun = 40, blockstun = 20, hitstop = 16, pushback = 4f, lunge = 4f,
+        knockdown = true, launch = 9f, isSuper = true };
+
     [Header("Bağlantılar")]
     public Fighter opponent;
     public FighterInput input;
     [HideInInspector] public bool controlEnabled;
+    [HideInInspector] public Color mainColor = Color.white;
 
     #endregion
 
     #region Durum
 
     public System.Action<Fighter, int> OnComboTaken;
+    public System.Action<Fighter> OnComboReady, OnComboUnleashed;
 
     public FState State { get; private set; }
     public int StateFrame { get; private set; }
@@ -78,6 +109,10 @@ public class Fighter : MonoBehaviour
     public int ComboCount { get; private set; }
     public bool CrouchBlocking { get; private set; }
     public bool HitWhileCrouching { get; private set; }
+    public int HitStreak { get; private set; }
+    public bool ComboReady { get; private set; }
+    public float ComboReadyFraction => ComboReady ? readyLeft / (float)Mathf.Max(1, comboReadyFrames) : 0f;
+    public bool InComboRush => State == FState.Attack && CurrentMove != null && CurrentMove.isSuper;
 
     public float X => pos.x;
     public float Y => pos.y;
@@ -87,6 +122,7 @@ public class Fighter : MonoBehaviour
 
     Vector2 pos, vel;
     int stunFrames;
+    int streakTimer, readyLeft;
     bool moveHasHit, airAttackUsed;
 
     void Awake()
@@ -102,6 +138,7 @@ public class Fighter : MonoBehaviour
     public void Tick(float dt)
     {
         StateFrame++;
+        TickComboTimers();
         switch (State)
         {
             case FState.Idle:
@@ -152,6 +189,7 @@ public class Fighter : MonoBehaviour
         float rel = h * Facing;
         bool down = input.Down;
 
+        if (ComboReady && input.ConsumeCombo()) { StartComboRush(); return; }
         if (input.Up) { DoJump(h); return; }
         if (input.ConsumePunch()) { StartMove(down ? crouchPunch : standPunch); return; }
         if (input.ConsumeKick()) { StartMove(down ? crouchKick : standKick); return; }
@@ -209,10 +247,28 @@ public class Fighter : MonoBehaviour
         int f = StateFrame;
 
         if (!m.IsAir && !moveHasHit && f <= m.startup + m.active) vel.x = Facing * m.lunge;
+        if (m == comboFinisher && f == m.startup + 1) vel.y = finisherHop;
         if (f == m.startup + 1) FightFX.I?.OnWhiff(m);
 
         bool active = f > m.startup && f <= m.startup + m.active;
         if (active && !moveHasHit) TryHit(m);
+
+        if (m.isSuper)
+        {
+            // Color Rush zinciri: her parça isabet ederse (ya da bloklanırsa) bir sonrakine otomatik geçer.
+            MoveData next = m == comboRush1 ? comboRush2 : m == comboRush2 ? comboFinisher : null;
+            if (next != null && moveHasHit && f >= m.startup + m.active + 2)
+            {
+                UpdateFacing();
+                StartMove(next);
+                return;
+            }
+        }
+        else if (moveHasHit && ComboReady && controlEnabled && !m.IsAir && f > m.startup && input.ConsumeCombo())
+        {
+            StartComboRush();
+            return;
+        }
 
         if (moveHasHit && m.cancelable && controlEnabled && f > m.startup && input.ConsumeKick())
         {
@@ -225,6 +281,44 @@ public class Fighter : MonoBehaviour
 
     #endregion
 
+    #region Kombo sistemi
+
+    void TickComboTimers()
+    {
+        if (streakTimer > 0 && --streakTimer == 0) HitStreak = 0;
+        if (ComboReady && controlEnabled && --readyLeft <= 0) { ComboReady = false; readyLeft = 0; }
+    }
+
+    void RegisterHit(bool landed)
+    {
+        if (!landed) { HitStreak = 0; streakTimer = 0; return; }
+        HitStreak++;
+        streakTimer = comboChainWindow;
+        if (!ComboReady && HitStreak >= comboHitsRequired)
+        {
+            ComboReady = true;
+            readyLeft = comboReadyFrames;
+            HitStreak = 0;
+            streakTimer = 0;
+            FightFX.I?.OnComboReady(ToWorld(pos + new Vector2(0f, 1.2f)), mainColor);
+            OnComboReady?.Invoke(this);
+        }
+    }
+
+    void StartComboRush()
+    {
+        ComboReady = false;
+        readyLeft = 0;
+        HitStreak = 0;
+        streakTimer = 0;
+        UpdateFacing();
+        StartMove(comboRush1);
+        FightFX.I?.OnComboUnleash(ToWorld(pos + new Vector2(0f, 1.1f)), mainColor);
+        OnComboUnleashed?.Invoke(this);
+    }
+
+    #endregion
+
     #region Fizik
 
     void Physics(float dt)
@@ -233,7 +327,8 @@ public class Fighter : MonoBehaviour
         if (wasAir || vel.y > 0f) vel.y -= gravity * dt;
         pos += vel * dt;
 
-        if (pos.y <= 0f)
+        // Eşik Airborne ile aynı: y, 0 ile 0.0001 arasında kalırsa iniş kaçmasın.
+        if (pos.y <= 0.0001f)
         {
             pos.y = 0f;
             if (wasAir) { vel.y = 0f; Land(); }
@@ -288,7 +383,8 @@ public class Fighter : MonoBehaviour
         Vector2 contact = new Vector2(
             (Mathf.Max(hit.xMin, hurt.xMin) + Mathf.Min(hit.xMax, hurt.xMax)) * 0.5f,
             (Mathf.Max(hit.yMin, hurt.yMin) + Mathf.Min(hit.yMax, hurt.yMax)) * 0.5f);
-        opponent.ReceiveHit(this, m, contact);
+        bool landed = opponent.ReceiveHit(this, m, contact);
+        if (!m.isSuper) RegisterHit(landed);
     }
 
     public Rect HitboxRect(MoveData m)
@@ -310,7 +406,7 @@ public class Fighter : MonoBehaviour
         return new Rect(pos.x - w * 0.5f, pos.y + bottom, w, top - bottom);
     }
 
-    public void ReceiveHit(Fighter attacker, MoveData m, Vector2 contact)
+    public bool ReceiveHit(Fighter attacker, MoveData m, Vector2 contact)
     {
         float away = Mathf.Abs(pos.x - attacker.pos.x) < 0.01f ? attacker.Facing : Mathf.Sign(pos.x - attacker.pos.x);
         Vector3 fxPos = ToWorld(contact);
@@ -332,13 +428,16 @@ public class Fighter : MonoBehaviour
             stunFrames = m.blockstun;
             vel.x = away * m.pushback;
             PushAttackerIfCornered(attacker, m.pushback, away);
+            if (m.isSuper) Health = Mathf.Max(1, Health - Mathf.Max(1, m.damage / 4));
             FightFX.I?.OnBlock(fxPos, m);
-            return;
+            return false;
         }
 
+        HitStreak = 0;
+        streakTimer = 0;
         bool juggle = State == FState.Hitstun;
         ComboCount = juggle ? ComboCount + 1 : 1;
-        float scale = Mathf.Max(0.4f, 1f - 0.12f * (ComboCount - 1));
+        float scale = m.isSuper ? 1f : Mathf.Max(0.4f, 1f - 0.12f * (ComboCount - 1));
         Health = Mathf.Max(0, Health - Mathf.Max(1, Mathf.RoundToInt(m.damage * scale)));
         OnComboTaken?.Invoke(this, ComboCount);
 
@@ -355,7 +454,7 @@ public class Fighter : MonoBehaviour
             SetState(FState.KO);
             vel = new Vector2(away * 3.5f, 7.5f);
             FightFX.I?.OnKO(fxPos);
-            return;
+            return true;
         }
 
         if (wasAir || m.knockdown || m.launch > 0f)
@@ -368,7 +467,9 @@ public class Fighter : MonoBehaviour
             PushAttackerIfCornered(attacker, m.pushback, away);
         }
 
-        FightFX.I?.OnHit(fxPos, m, ComboCount);
+        if (m.isSuper) FightFX.I?.OnHit(fxPos, m, ComboCount, attacker.mainColor);
+        else FightFX.I?.OnHit(fxPos, m, ComboCount);
+        return true;
     }
 
     void PushAttackerIfCornered(Fighter attacker, float push, float away)
@@ -387,6 +488,10 @@ public class Fighter : MonoBehaviour
         vel = Vector2.zero;
         Health = maxHealth;
         ComboCount = 0;
+        HitStreak = 0;
+        streakTimer = 0;
+        ComboReady = false;
+        readyLeft = 0;
         CurrentMove = null;
         controlEnabled = false;
         Facing = x < 0f ? 1 : -1;

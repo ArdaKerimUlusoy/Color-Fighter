@@ -17,6 +17,7 @@ public class CabinetControls : MonoBehaviour
     Material punchMat, kickMat;
     Color punchBase, kickBase;
     bool ready;
+    Color? pendingColor;
 
     void Start()
     {
@@ -28,6 +29,18 @@ public class CabinetControls : MonoBehaviour
         punchBase = punchMat.color;
         kickBase = kickMat.color;
         ready = true;
+        if (pendingColor.HasValue) SetColor(pendingColor.Value);
+    }
+
+    /// <summary>Joystick topu, Punch/Kick tuþlarý ve paneldeki þerit oyuncunun rengini alýr.</summary>
+    public void SetColor(Color c)
+    {
+        if (!Application.isPlaying) return;
+        if (!ready) { pendingColor = c; return; }
+        punchBase = kickBase = c;
+        punchMat.color = kickMat.color = c;
+        foreach (var r in stick.GetComponentsInChildren<Renderer>(true))
+            if (r.name == "Ball") r.material.color = c;   // renderer.material: kopya, asset deðiþmez
     }
 
     #endregion

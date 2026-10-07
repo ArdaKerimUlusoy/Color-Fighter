@@ -39,6 +39,14 @@ public class FighterRig : MonoBehaviour
     static readonly float[] DOWN        = { 0.14f,   0,   10,  -20,  -20,  -10,  -30,   -10,   20,    10,   30,  -90 };
     static readonly float[] WIN         = { 0.95f,  -5,  -15,  -40, -100, -170,  -10,   -15,   10,    15,   10,    0 };
 
+    // Kombo saldırısı (Color Rush) pozları
+    static readonly float[] RUSHA_WIND  = { 0.86f,  10,   -8,   10, -120,  -40, -110,   -40,   45,    25,   30,    0 };
+    static readonly float[] RUSHA_HIT   = { 0.82f,  30,  -14,  -95,   -8,  -25, -125,   -50,   45,    40,   20,    0 };
+    static readonly float[] RUSHB_WIND  = { 0.95f, -10,   -5,  -60, -100,  -40, -110,   -80,  110,   -15,   20,    0 };
+    static readonly float[] RUSHB_HIT   = { 1.00f, -25,    8,  -20,  -60,   20,  -60,  -118,    0,    10,   10,  -10 };
+    static readonly float[] FIN_WIND    = { 0.50f,  30,  -15,  -60, -110,   30, -140,   -70,  110,   -20,   90,    0 };
+    static readonly float[] FIN_HIT     = { 1.00f, -10,   15,  -40, -100, -175,   -5,   -40,   60,    10,   20,    0 };
+
     #endregion
 
     #region Çalışma durumu
@@ -50,6 +58,13 @@ public class FighterRig : MonoBehaviour
     int lastPhase = -1;
     float stepTimer;
     System.Func<Color, Material> materialFor;
+
+    static readonly string[] MainPartNames = { "Chest", "Headband", "HeadbandTail", "UpperArm" };
+    static readonly string[] PantsPartNames = { "Pelvis", "Thigh", "Shin" };
+    Renderer[] mainParts, pantsParts;
+    Color mainBase, pantsBase;
+    bool partsReady;
+    float lastGlow = -1f;
 
     void Awake()
     {
@@ -97,6 +112,55 @@ public class FighterRig : MonoBehaviour
 
         System.Array.Copy(IDLE, cur, N);
         Apply();
+    }
+
+    /// <summary>Oyun sırasında dövüşçünün rengini değiştirir (karakter seçimi). Asset materyallerine dokunmaz.</summary>
+    public void Recolor(Color main)
+    {
+        if (!Application.isPlaying) return;
+        EnsureParts();
+        mainBase = main;
+        pantsBase = new Color(main.r * 0.45f, main.g * 0.45f, main.b * 0.45f, 1f);
+        lastGlow = -1f;
+        ApplyTint(0f);
+    }
+
+    void EnsureParts()
+    {
+        if (partsReady || root == null) return;
+        var main = new System.Collections.Generic.List<Renderer>();
+        var pants = new System.Collections.Generic.List<Renderer>();
+        foreach (var r in root.GetComponentsInChildren<Renderer>(true))
+        {
+            if (System.Array.IndexOf(MainPartNames, r.name) >= 0) main.Add(r);
+            else if (System.Array.IndexOf(PantsPartNames, r.name) >= 0) pants.Add(r);
+        }
+        mainParts = main.ToArray();
+        pantsParts = pants.ToArray();
+        mainBase = mainParts.Length > 0 && mainParts[0].sharedMaterial != null ? mainParts[0].sharedMaterial.color : Color.white;
+        pantsBase = pantsParts.Length > 0 && pantsParts[0].sharedMaterial != null ? pantsParts[0].sharedMaterial.color : Color.gray;
+        partsReady = true;
+    }
+
+    void ApplyTint(float glow)
+    {
+        // renderer.material her renderer için bir kopya üretir; asset dosyası değişmez.
+        Color m = Color.Lerp(mainBase, Color.white, glow);
+        Color p = Color.Lerp(pantsBase, Color.white, glow * 0.5f);
+        foreach (var r in mainParts) if (r != null) r.material.color = m;
+        foreach (var r in pantsParts) if (r != null) r.material.color = p;
+    }
+
+    void UpdateGlow()
+    {
+        float glow = 0f;
+        if (fighter.InComboRush) glow = 0.4f + 0.25f * Mathf.Sin(Time.unscaledTime * 40f);
+        else if (fighter.ComboReady) glow = 0.2f + 0.15f * Mathf.Sin(Time.unscaledTime * 9f);
+        if (glow <= 0f && lastGlow <= 0f) return;
+        if (Mathf.Abs(glow - lastGlow) < 0.01f) return;
+        EnsureParts();
+        ApplyTint(glow);
+        lastGlow = glow;
     }
 
     public void SetFacing(int facing)
@@ -150,6 +214,14 @@ public class FighterRig : MonoBehaviour
         if (fighter == null || root == null) return;
 
         root.localScale = new Vector3(1f, 1f, fighter.Facing);
+
+        // Spin Kick: hazırlık sırasında gövde bir tur döner.
+        float spin = 0f;
+        var mv = fighter.CurrentMove;
+        if (fighter.State == FState.Attack && mv != null && mv.pose == AttackPose.ComboRushB && fighter.StateFrame <= mv.startup)
+            spin = 360f * fighter.StateFrame / Mathf.Max(1f, mv.startup + 1f);
+        root.localRotation = Quaternion.Euler(0f, 90f + spin, 0f);
+        if (Application.isPlaying) UpdateGlow();
 
         ComputeTarget(out bool snap);
         bool changed = fighter.State != lastState || fighter.CurrentMove != lastMove;
@@ -214,6 +286,9 @@ public class FighterRig : MonoBehaviour
             case AttackPose.CrouchKick:  wind = SWEEP_WIND;  hit = SWEEP_HIT;  break;
             case AttackPose.AirPunch:    wind = APUNCH_WIND; hit = APUNCH_HIT; break;
             case AttackPose.AirKick:     wind = AKICK_WIND;  hit = AKICK_HIT;  break;
+            case AttackPose.ComboRushA:  wind = RUSHA_WIND;  hit = RUSHA_HIT;  break;
+            case AttackPose.ComboRushB:  wind = RUSHB_WIND;  hit = RUSHB_HIT;  break;
+            case AttackPose.ComboFinisher: wind = FIN_WIND;  hit = FIN_HIT;    break;
             default:                     wind = PUNCH_WIND;  hit = PUNCH_HIT;  break;
         }
         float[] rest = m.IsAir ? JUMP : m.IsCrouch ? CROUCH : IDLE;
