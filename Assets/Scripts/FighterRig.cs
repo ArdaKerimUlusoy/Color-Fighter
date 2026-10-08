@@ -68,6 +68,20 @@ public class FighterRig : MonoBehaviour
     int lastBeat = -1;
     float celebY, celebSpin;
 
+    // Aksesuarlar (renge özel)
+    readonly System.Collections.Generic.List<GameObject> accParts = new System.Collections.Generic.List<GameObject>();
+    readonly System.Collections.Generic.List<Flow> flows = new System.Collections.Generic.List<Flow>();
+    static readonly System.Collections.Generic.Dictionary<Color32, Material> accMats = new System.Collections.Generic.Dictionary<Color32, Material>();
+    int accStyle = -1;
+    float lastX, swayFwd, swayUp;
+
+    /// <summary>Savrulan parça: hıza göre geriye kalkar, dururken hafifçe dalgalanır.</summary>
+    class Flow
+    {
+        public Transform pivot;
+        public float rest, gain, flutter, phase;
+    }
+
     void Awake()
     {
         System.Array.Copy(IDLE, cur, N);
@@ -165,6 +179,186 @@ public class FighterRig : MonoBehaviour
         lastGlow = glow;
     }
 
+    /// <summary>Renk + o renge özel aksesuar (seçim ekranı ve maç başında çağrılır).</summary>
+    public void SetLook(int style, Color main)
+    {
+        Recolor(main);
+        SetAccessory(style, main);
+    }
+
+    public void SetAccessory(int style, Color main)
+    {
+        if (!Application.isPlaying || root == null) return;
+        style = ((style % 8) + 8) % 8;
+        foreach (var go in accParts) if (go != null) Destroy(go);
+        accParts.Clear();
+        flows.Clear();
+        accStyle = style;
+
+        Color dark = new Color(0.08f, 0.08f, 0.1f);
+        Color white = new Color(0.95f, 0.95f, 0.92f);
+        Color light = Color.Lerp(main, Color.white, 0.25f);
+        Color deep = new Color(main.r * 0.5f, main.g * 0.5f, main.b * 0.5f);
+
+        switch (style)
+        {
+            case 0: // RED: uçuşan bandana uçları + el sargıları
+                for (int i = 0; i < 2; i++)
+                {
+                    var pv = AccPivot(head, new Vector3(i == 0 ? -0.03f : 0.03f, 0.21f, -0.12f), -30f - i * 12f, 55f, 7f, i * 1.7f);
+                    AccBox(pv, new Vector3(0f, 0f, -0.2f), new Vector3(0.045f, 0.03f, 0.4f - i * 0.08f), light);
+                }
+                foreach (var el in new[] { lEl, rEl })
+                {
+                    AccBox(el, new Vector3(0f, -0.2f, 0f), new Vector3(0.135f, 0.05f, 0.135f), white);
+                    AccBox(el, new Vector3(0f, -0.08f, 0f), new Vector3(0.135f, 0.05f, 0.135f), white);
+                }
+                break;
+
+            case 1: // BLUE: büyük boks eldivenleri + kask
+                foreach (var el in new[] { lEl, rEl })
+                {
+                    AccBox(el, new Vector3(0f, -0.34f, 0.01f), new Vector3(0.23f, 0.21f, 0.24f), light);
+                    AccBox(el, new Vector3(0f, -0.22f, 0f), new Vector3(0.19f, 0.05f, 0.19f), white);
+                }
+                AccBox(head, new Vector3(-0.122f, 0.13f, 0f), new Vector3(0.035f, 0.17f, 0.2f), deep);
+                AccBox(head, new Vector3(0.122f, 0.13f, 0f), new Vector3(0.035f, 0.17f, 0.2f), deep);
+                AccBox(head, new Vector3(0f, 0.285f, -0.01f), new Vector3(0.25f, 0.04f, 0.22f), deep);
+                break;
+
+            case 2: // GREEN: siyah kuşak + sarkan uçlar + tepe topuzu
+                AccBox(torso, new Vector3(0f, 0.08f, 0f), new Vector3(0.45f, 0.09f, 0.275f), dark);
+                for (int i = 0; i < 2; i++)
+                {
+                    var pv = AccPivot(torso, new Vector3(i == 0 ? -0.06f : 0.05f, 0.05f, 0.14f), 0f, -8f, 3f, i * 2.1f);
+                    AccBox(pv, new Vector3(0f, -0.12f, 0.01f), new Vector3(0.05f, 0.24f, 0.02f), dark);
+                }
+                AccBox(head, new Vector3(0f, 0.31f, -0.05f), new Vector3(0.1f, 0.09f, 0.1f), dark);
+                AccBox(head, new Vector3(0f, 0.27f, -0.05f), new Vector3(0.11f, 0.025f, 0.11f), light);
+                break;
+
+            case 3: // YELLOW: diken diken saç + dizlikler
+                var hair = new Color(1f, 0.9f, 0.45f);
+                for (int i = 0; i < 6; i++)
+                {
+                    float ax = (i % 3 - 1) * 28f, az = i < 3 ? -18f : 22f;
+                    var sp = AccBox(head, new Vector3((i % 3 - 1) * 0.06f, 0.33f, i < 3 ? 0.03f : -0.06f), new Vector3(0.06f, 0.17f, 0.06f), hair);
+                    sp.localRotation = Quaternion.Euler(az, 0f, -ax);
+                }
+                foreach (var kn in new[] { lKn, rKn })
+                {
+                    AccBox(kn, new Vector3(0f, -0.02f, 0.04f), new Vector3(0.19f, 0.13f, 0.18f), dark);
+                    AccBox(kn, new Vector3(0f, -0.02f, 0.135f), new Vector3(0.12f, 0.03f, 0.01f), light);
+                }
+                break;
+
+            case 4: // PURPLE: pelerin + ninja maskesi
+                var cape = AccPivot(torso, new Vector3(0f, 0.58f, -0.15f), 6f, 45f, 5f, 0f);
+                AccBox(cape, new Vector3(0f, -0.48f, 0f), new Vector3(0.48f, 0.96f, 0.03f), deep);
+                AccBox(cape, new Vector3(0f, -0.48f, 0.017f), new Vector3(0.42f, 0.9f, 0.005f), light);
+                AccBox(torso, new Vector3(0f, 0.58f, -0.13f), new Vector3(0.5f, 0.06f, 0.06f), dark);
+                AccBox(head, new Vector3(0f, 0.07f, 0.005f), new Vector3(0.235f, 0.11f, 0.25f), new Color(0.12f, 0.1f, 0.16f));
+                break;
+
+            case 5: // ORANGE: zırh omuzluklar + altın şampiyonluk kemeri
+                var metal = new Color(0.35f, 0.35f, 0.4f);
+                foreach (var sh in new[] { lSh, rSh })
+                {
+                    AccBox(sh, new Vector3(0f, 0.03f, 0f), new Vector3(0.25f, 0.1f, 0.25f), metal);
+                    AccBox(sh, new Vector3(0f, 0.085f, 0f), new Vector3(0.2f, 0.02f, 0.2f), light);
+                }
+                var gold = new Color(1f, 0.78f, 0.22f);
+                AccBox(torso, new Vector3(0f, 0.08f, 0f), new Vector3(0.47f, 0.14f, 0.285f), gold);
+                AccBox(torso, new Vector3(0f, 0.08f, 0.146f), new Vector3(0.17f, 0.13f, 0.02f), new Color(1f, 0.95f, 0.6f));
+                AccBox(torso, new Vector3(0f, 0.08f, 0.158f), new Vector3(0.07f, 0.06f, 0.01f), main);
+                break;
+
+            case 6: // CYAN: parlayan vizör + kolluklar
+                var glow = Color.Lerp(main, Color.white, 0.45f);
+                AccBox(head, new Vector3(0f, 0.15f, 0.125f), new Vector3(0.25f, 0.06f, 0.03f), glow);
+                AccBox(head, new Vector3(-0.125f, 0.15f, 0.02f), new Vector3(0.03f, 0.09f, 0.11f), dark);
+                AccBox(head, new Vector3(0.125f, 0.15f, 0.02f), new Vector3(0.03f, 0.09f, 0.11f), dark);
+                foreach (var el in new[] { lEl, rEl })
+                {
+                    AccBox(el, new Vector3(0f, -0.13f, 0f), new Vector3(0.145f, 0.2f, 0.145f), dark);
+                    AccBox(el, new Vector3(0f, -0.1f, 0f), new Vector3(0.15f, 0.03f, 0.15f), glow);
+                }
+                break;
+
+            default: // PINK: at kuyruğu + tozluklar
+                var pinkHair = Color.Lerp(main, Color.white, 0.35f);
+                AccBox(head, new Vector3(0f, 0.255f, -0.02f), new Vector3(0.245f, 0.06f, 0.24f), pinkHair);
+                var tail = AccPivot(head, new Vector3(0f, 0.24f, -0.13f), -55f, 50f, 9f, 0.5f);
+                AccBox(tail, new Vector3(0f, 0f, -0.12f), new Vector3(0.09f, 0.08f, 0.24f), pinkHair);
+                AccBox(tail, new Vector3(0f, -0.01f, -0.27f), new Vector3(0.07f, 0.06f, 0.12f), pinkHair);
+                AccBox(tail, new Vector3(0f, 0f, -0.01f), new Vector3(0.1f, 0.05f, 0.05f), white);
+                foreach (var kn in new[] { lKn, rKn })
+                {
+                    AccBox(kn, new Vector3(0f, -0.27f, 0f), new Vector3(0.185f, 0.2f, 0.185f), white);
+                    AccBox(kn, new Vector3(0f, -0.22f, 0f), new Vector3(0.19f, 0.035f, 0.19f), light);
+                    AccBox(kn, new Vector3(0f, -0.32f, 0f), new Vector3(0.19f, 0.035f, 0.19f), light);
+                }
+                break;
+        }
+    }
+
+    Transform AccPivot(Transform parent, Vector3 pos, float rest, float gain, float flutter, float phase)
+    {
+        var t = new GameObject("Acc_Pivot").transform;
+        t.SetParent(parent, false);
+        t.localPosition = pos;
+        t.localRotation = Quaternion.Euler(rest, 0f, 0f);
+        accParts.Add(t.gameObject);
+        flows.Add(new Flow { pivot = t, rest = rest, gain = gain, flutter = flutter, phase = phase });
+        return t;
+    }
+
+    Transform AccBox(Transform parent, Vector3 pos, Vector3 size, Color c)
+    {
+        var go = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        go.name = "Acc";
+        ColorFighterUtil.Kill(go.GetComponent<Collider>());
+        go.transform.SetParent(parent, false);
+        go.transform.localPosition = pos;
+        go.transform.localScale = size;
+        go.GetComponent<Renderer>().sharedMaterial = AccMaterial(c);
+        accParts.Add(go);
+        return go.transform;
+    }
+
+    Material AccMaterial(Color c)
+    {
+        Color32 key = c;
+        if (accMats.TryGetValue(key, out var m) && m != null) return m;
+        Shader sh = null;
+        if (mainParts == null) EnsureParts();
+        if (mainParts != null && mainParts.Length > 0 && mainParts[0] != null && mainParts[0].sharedMaterial != null)
+            sh = mainParts[0].sharedMaterial.shader;
+        if (sh == null) sh = Shader.Find("Universal Render Pipeline/Lit");
+        if (sh == null) sh = Shader.Find("Standard");
+        m = new Material(sh) { color = c };
+        accMats[key] = m;
+        return m;
+    }
+
+    void UpdateFlows()
+    {
+        if (flows.Count == 0) return;
+        float dt = Mathf.Max(1e-4f, Time.deltaTime);
+        float fwd = (fighter.X - lastX) / dt * fighter.Facing;
+        lastX = fighter.X;
+        bool air = fighter.Airborne;
+        swayFwd = Mathf.Lerp(swayFwd, Mathf.Clamp(Mathf.Abs(fwd) / 4f, 0f, 1f), 1f - Mathf.Exp(-6f * dt));
+        swayUp = Mathf.Lerp(swayUp, air ? 1f : 0f, 1f - Mathf.Exp(-5f * dt));
+        float t = Time.time;
+        foreach (var f in flows)
+        {
+            if (f.pivot == null) continue;
+            float a = f.rest + f.gain * Mathf.Max(swayFwd, swayUp * 0.8f) + Mathf.Sin(t * 7f + f.phase) * f.flutter * (0.4f + swayFwd);
+            f.pivot.localRotation = Quaternion.Euler(a, 0f, 0f);
+        }
+    }
+
     public void SetFacing(int facing)
     {
         if (root != null) root.localScale = new Vector3(1f, 1f, facing);
@@ -233,7 +427,7 @@ public class FighterRig : MonoBehaviour
             spin += b.spin * e;
             flip += b.flip * e;
         }
-        if (Application.isPlaying) UpdateGlow();
+        if (Application.isPlaying) { UpdateGlow(); UpdateFlows(); }
 
         ComputeTarget(out bool snap);
         if (fighter.State == FState.Win) spin += celebSpin;

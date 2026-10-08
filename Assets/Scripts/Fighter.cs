@@ -552,6 +552,7 @@ public class Fighter : MonoBehaviour
         ComboCount++;
         OnComboTaken?.Invoke(this, ComboCount);
         SetState(FState.KO);
+        input?.Rumble(0.9f, 1f, 0.6f);
         vel = new Vector2(away * Mathf.Max(1.5f, knock), Mathf.Max(2.5f, launch));
         Vector3 fx = ToWorld(pos + new Vector2(-away * 0.3f, 1.2f));
         FightFX.I?.OnFinisherHit(fx, attacker.mainColor);
@@ -684,6 +685,7 @@ public class Fighter : MonoBehaviour
         ComboCount = juggle ? ComboCount + 1 : 1;
         float scale = m.isSuper ? 1f : Mathf.Max(0.4f, 1f - 0.12f * (ComboCount - 1));
         Health = Mathf.Max(0, Health - Mathf.Max(1, Mathf.RoundToInt(m.damage * scale * damageTaken)));
+        input?.Rumble(m.IsHeavy || m.isSuper ? 0.5f : 0.2f, m.IsHeavy || m.isSuper ? 0.8f : 0.4f, m.IsHeavy ? 0.18f : 0.1f);
         OnComboTaken?.Invoke(this, ComboCount);
 
         bool wasAir = Airborne;
@@ -707,6 +709,7 @@ public class Fighter : MonoBehaviour
                 return true;
             }
             SetState(FState.KO);
+            input?.Rumble(0.9f, 1f, 0.6f);
             vel = new Vector2(away * 3.5f, 7.5f);
             FightFX.I?.OnKO(fxPos);
             return true;

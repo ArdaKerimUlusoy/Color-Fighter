@@ -9,7 +9,7 @@ using UnityEditor;
 using UnityEditor.SceneManagement;
 #endif
 
-public class ArcadeBootstrap : MonoBehaviour
+public partial class ArcadeBootstrap : MonoBehaviour
 {
     #region Ayarlar
 
@@ -91,7 +91,7 @@ public class ArcadeBootstrap : MonoBehaviour
     }
 
     /// <summary>
-    /// Sahne editörde eski sürümle kurulduysa, boks arenasını ve atari salonunu Play sırasında ekler.
+    /// Sahne editörde eski sürümle kurulduysa, boks arenasını, ek dövüş sahnelerini ve atari salonunu Play sırasında ekler.
     /// (Kalıcı yapmak için Inspector'dan "Sahneyi Yeniden Kur".)
     /// </summary>
     void UpgradeBuiltScene()
@@ -104,11 +104,13 @@ public class ArcadeBootstrap : MonoBehaviour
         if (boxing != null) KillChildren(boxing, "ApronLogo", "ApronLogoL", "ApronLogoR");
 
         bool arenaOld = arena != null && boxing == null;
+        bool stagesOld = arena != null && (arena.Find(StageSwitcher.Groups[1]) == null || arena.Find(StageSwitcher.Groups[2]) == null || arena.Find(StageSwitcher.Groups[3]) == null);
         bool roomOld = room != null && room.Find("ArcadeHall") == null;
-        if (!arenaOld && !roomOld) return;
+        if (!arenaOld && !stagesOld && !roomOld) return;
         FindShaders();
         matCache.Clear();
         if (arenaOld) SetupBoxingArena(arena);
+        if (stagesOld) SetupExtraStages(arena);
         if (roomOld) SetupArcadeHall(room);
     }
 
@@ -235,6 +237,7 @@ public class ArcadeBootstrap : MonoBehaviour
         Prim(PrimitiveType.Cube, arena, "BackWall", new Vector3(0f, 4f, 7f), new Vector3(30f, 8f, 0.5f), Mat(new Color(0.1f, 0.05f, 0.16f), true));
 
         SetupBoxingArena(arena);
+        SetupExtraStages(arena);
 
         var sun = FindSun();
         if (sun == null)

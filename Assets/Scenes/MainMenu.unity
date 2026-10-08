@@ -12935,6 +12935,7 @@ MonoBehaviour:
   gravity: 30
   groundFriction: 20
   maxHealth: 100
+  damageTaken: 0.5
   standPunch:
     name: Jab
     pose: 0
@@ -13114,6 +13115,8 @@ MonoBehaviour:
   input: {fileID: 314001071}
   controlEnabled: 0
   mainColor: {r: 1, g: 1, b: 1, a: 1}
+  finishers: 1
+  styleIndex: 0
 --- !u!1 &314674596
 GameObject:
   m_ObjectHideFlags: 0
@@ -22934,6 +22937,7 @@ MonoBehaviour:
   gravity: 30
   groundFriction: 20
   maxHealth: 100
+  damageTaken: 0.5
   standPunch:
     name: Jab
     pose: 0
@@ -23113,6 +23117,8 @@ MonoBehaviour:
   input: {fileID: 551756733}
   controlEnabled: 0
   mainColor: {r: 1, g: 1, b: 1, a: 1}
+  finishers: 1
+  styleIndex: 0
 --- !u!1 &553996341
 GameObject:
   m_ObjectHideFlags: 0

@@ -30,7 +30,7 @@ public class MatchManager : MonoBehaviour
 
     #region Durum
 
-    enum Phase { Title, Intro, Fight, RoundOver, MatchOver, Select, Mode }
+    enum Phase { Title, Intro, Fight, RoundOver, MatchOver, Select, Mode, Stage, Pads }
     Phase phase;
     float phaseTimer, timeLeft;
     int round, wins1, wins2;
@@ -47,6 +47,10 @@ public class MatchManager : MonoBehaviour
     bool vsCpu;
     int modeSel;
     float cpuPickTimer, cpuRollTimer;
+    int stageSel;
+    bool selectBack;
+    bool stageLocked;
+    float stageReadyTimer;
 
     #endregion
 
@@ -75,6 +79,7 @@ public class MatchManager : MonoBehaviour
         brain.self = p2;
         SetCpu(false);
         ApplySelectedColors();
+        StageSwitcher.Apply(Arena, stageSel, fightCam);
 
         ShowTitle();
         camPos = TargetCamPos();
@@ -121,12 +126,13 @@ public class MatchManager : MonoBehaviour
         // Seçim yarıda bırakıldıysa son onaylanan renklere dön.
         cursor[0] = FighterPalette.ClosestIndex(p1Color);
         cursor[1] = FighterPalette.ClosestIndex(p2Color);
-        rig1.Recolor(p1Color);
-        rig2.Recolor(p2Color);
+        rig1.SetLook(cursor[0], p1Color);
+        rig2.SetLook(cursor[1], p2Color);
         RecolorArena(p1Color, p2Color);
         SetCpu(false);
         hud.ShowSelect(false);
         hud.ShowMode(false);
+        hud.ShowStage(false);
         hud.ShowTitle(true);
     }
 
@@ -145,38 +151,169 @@ public class MatchManager : MonoBehaviour
         FightFX.I?.ResetState();
         phase = Phase.Mode;
         phaseTimer = 0f;
+        ClearPadLatches();
         SetCpu(false);
         p1.input.ClearBuffers();
         p2.input.ClearBuffers();
         hud.SetModeSelection(modeSel);
+        hud.ShowStage(false);
         hud.ShowMode(true);
     }
 
     void UpdateMode()
     {
-        if (phaseTimer < 0.2f) return;
-        bool up = p1.input.ConsumeUp() | p2.input.ConsumeUp();
-        bool down = p1.input.ConsumeDown() | p2.input.ConsumeDown();
+        if (phaseTimer < 0.2f) { ClearPadLatches(); return; }
+        // Oyuncuya atanmamış kollar da menüde gezinebilsin (basışlar Update'te yakalanır)
+        bool up = p1.input.ConsumeUp() | p2.input.ConsumeUp() | Take(ref padFreeUp);
+        bool down = p1.input.ConsumeDown() | p2.input.ConsumeDown() | Take(ref padFreeDown);
         if (up || down)
         {
             modeSel = 1 - modeSel;
             hud.SetModeSelection(modeSel);
             FightFX.I?.PlayMenuMove();
         }
-        if (p1.input.ConsumeKick() | p2.input.ConsumeKick())
+        if (p1.input.ConsumeKick() | p2.input.ConsumeKick() | Take(ref padFreeBack))
         {
             FightFX.I?.PlayMenuMove();
             ShowTitle();
             return;
         }
-        if (p1.input.ConsumePunch() | p2.input.ConsumePunch())
+        if (p1.input.ConsumePunch() | p2.input.ConsumePunch() | Take(ref padFreeOk))
         {
             FightFX.I?.PlayMenuSelect();
             hud.ShowMode(false);
             SetCpu(modeSel == 1);
+            // Kol takılıysa önce FIFA tarzı kol eşleştirme ekranı
+            if (UnityEngine.InputSystem.Gamepad.all.Count > 0) ShowPads();
+            else ShowSelect();
+        }
+    }
+
+    // Kol basışları Update'te yakalanıp FixedUpdate'te kullanılır.
+    // (wasPressedThisFrame FixedUpdate içinde güvenilir değil: yüksek FPS'te basışlar kaçıyordu.)
+    bool padFreeUp, padFreeDown, padFreeOk, padFreeBack, padAnyOk, padAnyBack;
+
+    static bool Take(ref bool latch) { bool v = latch; latch = false; return v; }
+
+    void ClearPadLatches() { padFreeUp = padFreeDown = padFreeOk = padFreeBack = padAnyOk = padAnyBack = false; }
+
+    void PollPads()
+    {
+        bool menuPhase = phase == Phase.Title || phase == Phase.Mode || phase == Phase.Pads;
+        if (Paused || !menuPhase) { ClearPadLatches(); return; }
+        foreach (var gp in UnityEngine.InputSystem.Gamepad.all)
+        {
+            if (gp == null) continue;
+            bool ok = gp.buttonSouth.wasPressedThisFrame || gp.startButton.wasPressedThisFrame;
+            bool back = gp.buttonEast.wasPressedThisFrame || gp.selectButton.wasPressedThisFrame;
+            padAnyOk |= ok;
+            padAnyBack |= back;
+            if (GamepadAssign.SlotOf(gp) == GamepadAssign.None)
+            {
+                padFreeUp |= gp.dpad.up.wasPressedThisFrame || gp.leftStick.up.wasPressedThisFrame;
+                padFreeDown |= gp.dpad.down.wasPressedThisFrame || gp.leftStick.down.wasPressedThisFrame;
+                padFreeOk |= ok;
+                padFreeBack |= back;
+            }
+            if (phase == Phase.Pads && phaseTimer >= 0.15f)
+            {
+                int dir = 0;
+                if (gp.dpad.left.wasPressedThisFrame || gp.leftStick.left.wasPressedThisFrame) dir = -1;
+                else if (gp.dpad.right.wasPressedThisFrame || gp.leftStick.right.wasPressedThisFrame) dir = 1;
+                if (dir != 0) MovePad(gp, dir);
+            }
+        }
+    }
+
+    /// <summary>Başlangıç ve seçim ekranındaki tuş anlatımı: kolu olan oyuncuya kol tuşları gösterilir.</summary>
+    void RefreshControlHints()
+    {
+        bool pad1 = GamepadAssign.PadFor(0) != null;
+        bool pad2 = !vsCpu && GamepadAssign.PadFor(1) != null;
+        hud.SetControlHints(pad1, pad2, p1.input.ComboKeyLabel, vsCpu ? "CPU" : p2.input.ComboKeyLabel, UnityEngine.InputSystem.Gamepad.all.Count > 0);
+    }
+
+    #region Kol eşleştirme (FIFA tarzı: kolu ◄ 1P'ye, ► 2P'ye it)
+
+    void ShowPads()
+    {
+        FightFX.I?.ResetState();
+        phase = Phase.Pads;
+        phaseTimer = 0f;
+        ClearPadLatches();
+        p1.input.ClearBuffers();
+        p2.input.ClearBuffers();
+        RefreshPadsHud();
+        hud.ShowPads(true);
+    }
+
+    /// <summary>CPU modunda 2P yuvası kullanılmaz: orada duran kol ortada (boşta) gösterilir.</summary>
+    int ShownSlot(UnityEngine.InputSystem.Gamepad gp)
+    {
+        int s = GamepadAssign.SlotOf(gp);
+        return vsCpu && s == 1 ? GamepadAssign.None : s;
+    }
+
+    void RefreshPadsHud()
+    {
+        var all = UnityEngine.InputSystem.Gamepad.all;
+        int n = Mathf.Min(all.Count, 3);
+        var slots = new int[n];
+        var hot = new bool[n];
+        for (int i = 0; i < n; i++)
+        {
+            var gp = all[i];
+            slots[i] = ShownSlot(gp);
+            hot[i] = gp.buttonSouth.isPressed || gp.buttonEast.isPressed || gp.buttonWest.isPressed || gp.buttonNorth.isPressed
+                || gp.dpad.left.isPressed || gp.dpad.right.isPressed || gp.leftStick.left.isPressed || gp.leftStick.right.isPressed;
+        }
+        hud.SetPads(slots, hot, vsCpu);
+    }
+
+    /// <summary>◄: 1P'ye doğru, ►: 2P'ye doğru (CPU modunda 2P yuvası kapalı).</summary>
+    void MovePad(UnityEngine.InputSystem.Gamepad gp, int dir)
+    {
+        int shown = ShownSlot(gp);
+        int target;
+        if (shown == 0) target = dir < 0 ? 0 : GamepadAssign.None;
+        else if (shown == 1) target = dir > 0 ? 1 : GamepadAssign.None;
+        else target = dir < 0 ? 0 : (vsCpu ? GamepadAssign.None : 1);
+
+        if (target == shown)
+        {
+            GamepadAssign.RumblePad(gp, 0.15f, 0f, 0.06f);   // kenara dayandı
+            if (target != GamepadAssign.SlotOf(gp)) GamepadAssign.Set(gp, target);
+            return;
+        }
+        GamepadAssign.Set(gp, target);
+        FightFX.I?.PlayMenuMove();
+        GamepadAssign.RumblePad(gp, 0.35f, 0.35f, 0.12f);
+    }
+
+    void UpdatePads()
+    {
+        RefreshPadsHud();
+
+        if (phaseTimer < 0.25f) { ClearPadLatches(); p1.input.ClearBuffers(); p2.input.ClearBuffers(); return; }
+        bool back = p1.input.ConsumeKick() | p2.input.ConsumeKick() | Take(ref padAnyBack);
+        bool go = p1.input.ConsumePunch() | p2.input.ConsumePunch() | Take(ref padAnyOk);
+        p1.input.ConsumeLeft(); p1.input.ConsumeRight(); p2.input.ConsumeLeft(); p2.input.ConsumeRight();
+        if (back)
+        {
+            FightFX.I?.PlayMenuMove();
+            hud.ShowPads(false);
+            ShowMode();
+            return;
+        }
+        if (go)
+        {
+            FightFX.I?.PlayMenuSelect();
+            hud.ShowPads(false);
             ShowSelect();
         }
     }
+
+    #endregion
 
     void ShowSelect()
     {
@@ -190,34 +327,114 @@ public class MatchManager : MonoBehaviour
         p2.ResetForRound(selectSpacing * 0.5f);
         p1.input.ClearBuffers();
         p2.input.ClearBuffers();
-        rig1.Recolor(FighterPalette.All[cursor[0]].color);
-        rig2.Recolor(FighterPalette.All[cursor[1]].color);
+        rig1.SetLook(cursor[0], FighterPalette.All[cursor[0]].color);
+        rig2.SetLook(cursor[1], FighterPalette.All[cursor[1]].color);
         PreviewArenaColors();
         hud.SetSelect(cursor[0], cursor[1], false, false, !vsCpu);
+        hud.ShowStage(false);
         hud.ShowSelect(true);
     }
 
     void UpdateSelect(float dt)
     {
         if (phaseTimer < 0.2f) return;
+        selectBack = false;
         SelectInput(0);
         if (vsCpu) CpuSelect(dt);
         else SelectInput(1);
+        if (selectBack && !locked[0] && !locked[1])
+        {
+            FightFX.I?.PlayMenuMove();
+            if (UnityEngine.InputSystem.Gamepad.all.Count > 0) ShowPads(); else ShowMode();
+            return;
+        }
         hud.SetSelect(cursor[0], cursor[1], locked[0], locked[1], !vsCpu || locked[0]);
 
         if (locked[0] && locked[1])
         {
-            if (bothReadyTimer == 0f) hud.ShowCenter("GET READY!", new Color(1f, 0.85f, 0.2f), selectConfirmDelay);
+            // İkisi de hazır: kısa bir sevinç anı, sonra sahne seçimi
             bothReadyTimer += dt;
-            if (bothReadyTimer >= selectConfirmDelay)
+            if (bothReadyTimer >= 0.6f) ShowStage();
+        }
+        else bothReadyTimer = 0f;
+    }
+
+    Transform Arena => p1 != null ? p1.transform.parent : null;
+
+    /// <summary>Sahne seçimi: ◄/► ile sahneler arkada canlı değişir. Yumruk onaylar, tekme karakter seçimine döner.</summary>
+    void ShowStage()
+    {
+        phase = Phase.Stage;
+        phaseTimer = 0f;
+        stageLocked = false;
+        stageReadyTimer = 0f;
+        ApplySelectedColors();
+        p1.input.ClearBuffers();
+        p2.input.ClearBuffers();
+        StageSwitcher.Apply(Arena, stageSel, fightCam);
+        stageSel = StageSwitcher.Current;
+        hud.ShowSelect(false);
+        hud.ShowStage(true);
+        hud.SetStage(stageSel, StageSwitcher.Count, StageSwitcher.Names[stageSel], StageSwitcher.Descs[stageSel], false, vsCpu);
+    }
+
+    void UpdateStage(float dt)
+    {
+        if (stageLocked)
+        {
+            p1.input.ClearBuffers();
+            p2.input.ClearBuffers();
+            stageReadyTimer += dt;
+            if (stageReadyTimer >= selectConfirmDelay)
             {
-                ApplySelectedColors();
-                hud.ShowSelect(false);
+                hud.ShowStage(false);
                 FightFX.I?.PlayFight();
                 StartMatch();
             }
+            return;
         }
-        else bothReadyTimer = 0f;
+        if (phaseTimer < 0.2f) return;
+
+        // CPU modunda sahneyi 1P seçer
+        bool l = p1.input.ConsumeLeft(), r = p1.input.ConsumeRight();
+        bool punch = p1.input.ConsumePunch(), kick = p1.input.ConsumeKick();
+        p1.input.ConsumeUp(); p1.input.ConsumeDown();
+        if (!vsCpu)
+        {
+            l |= p2.input.ConsumeLeft(); r |= p2.input.ConsumeRight();
+            punch |= p2.input.ConsumePunch(); kick |= p2.input.ConsumeKick();
+            p2.input.ConsumeUp(); p2.input.ConsumeDown();
+        }
+
+        if (l || r)
+        {
+            int n = StageSwitcher.Count;
+            int next = stageSel;
+            // Kurulu olmayan sahne (eski sahne dosyası) atlanır
+            for (int k = 0; k < n; k++)
+            {
+                next = (next + (l ? n - 1 : 1)) % n;
+                if (StageSwitcher.Exists(Arena, next)) break;
+            }
+            stageSel = next;
+            StageSwitcher.Apply(Arena, stageSel, fightCam);
+            hud.SetStage(stageSel, StageSwitcher.Count, StageSwitcher.Names[stageSel], StageSwitcher.Descs[stageSel], false, vsCpu);
+            FightFX.I?.PlayMenuMove();
+        }
+        if (kick)
+        {
+            FightFX.I?.PlayMenuMove();
+            ShowSelect();
+            return;
+        }
+        if (punch)
+        {
+            stageLocked = true;
+            stageReadyTimer = 0f;
+            hud.SetStage(stageSel, StageSwitcher.Count, StageSwitcher.Names[stageSel], StageSwitcher.Descs[stageSel], true, vsCpu);
+            hud.ShowCenter("GET READY!", new Color(1f, 0.85f, 0.2f), selectConfirmDelay);
+            FightFX.I?.PlayMenuSelect();
+        }
     }
 
     /// <summary>CPU, 1P rengini onaylayınca kısa bir "rulet" ile 1P'den farklı rastgele bir renk seçer.</summary>
@@ -248,7 +465,7 @@ public class MatchManager : MonoBehaviour
                 for (int i = 0; i < FighterPalette.Count; i++) if (i != cursor[0]) options.Add(i);
             int c = options[Random.Range(0, options.Count)];
             cursor[1] = c;
-            rig2.Recolor(FighterPalette.All[c].color);
+            rig2.SetLook(c, FighterPalette.All[c].color);
             PreviewArenaColors();
             FightFX.I?.PlayMenuMove();
         }
@@ -288,12 +505,13 @@ public class MatchManager : MonoBehaviour
         if (c != cursor[side])
         {
             cursor[side] = c;
-            (side == 0 ? rig1 : rig2).Recolor(FighterPalette.All[c].color);
+            (side == 0 ? rig1 : rig2).SetLook(c, FighterPalette.All[c].color);
             PreviewArenaColors();
             FightFX.I?.PlayMenuMove();
         }
 
-        input.ConsumeKick();
+        // Kilitli değilken tekme / O = geri (ESC gibi)
+        if (input.ConsumeKick()) selectBack = true;
         if (input.ConsumePunch())
         {
             if (locked[other] && cursor[other] == cursor[side])
@@ -349,8 +567,8 @@ public class MatchManager : MonoBehaviour
         p1.fighterName = a.name; p2.fighterName = vsCpu ? b.name + " CPU" : b.name;
         p1.mainColor = a.color; p2.mainColor = b.color;
         p1.styleIndex = cursor[0]; p2.styleIndex = cursor[1];
-        rig1.Recolor(a.color);
-        rig2.Recolor(b.color);
+        rig1.SetLook(cursor[0], a.color);
+        rig2.SetLook(cursor[1], b.color);
         hud.SetPlayers(a.name, b.name, a.color, b.color);
         RecolorArena(p1Color, p2Color);
     }
@@ -414,6 +632,7 @@ public class MatchManager : MonoBehaviour
     {
         FightFX.I?.ResetState();
         hud.ShowSelect(false);
+        hud.ShowStage(false);
         hud.ShowTitle(false);
         wins1 = wins2 = 0;
         round = 0;
@@ -462,7 +681,9 @@ public class MatchManager : MonoBehaviour
                     phaseTimer = 0f;
                     break;
                 }
-                if (phaseTimer > 0.5f && (p1.input.ConsumePunch() | p2.input.ConsumePunch()))
+                if (phaseTimer <= 0.5f) { ClearPadLatches(); break; }
+                // Klavyeden yumruk ya da herhangi bir boştaki kolun X / Options tuşu
+                if (p1.input.ConsumePunch() | p2.input.ConsumePunch() | Take(ref padFreeOk))
                 {
                     FightFX.I?.PlayMenuSelect();
                     ShowMode();
@@ -475,6 +696,14 @@ public class MatchManager : MonoBehaviour
 
             case Phase.Select:
                 UpdateSelect(dt);
+                break;
+
+            case Phase.Stage:
+                UpdateStage(dt);
+                break;
+
+            case Phase.Pads:
+                UpdatePads();
                 break;
 
             case Phase.Intro:
@@ -562,12 +791,19 @@ public class MatchManager : MonoBehaviour
 
     void Update()
     {
+        bool menu = Paused || MainMenu.Active || phase == Phase.Title || phase == Phase.Mode || phase == Phase.Select || phase == Phase.Stage || phase == Phase.Pads || phase == Phase.MatchOver;
+        p1.input.menuMode = menu;
+        p2.input.menuMode = menu;
         if (MainMenu.Active) return;
+        PollPads();
+        if (phase == Phase.Title || phase == Phase.Select) RefreshControlHints();
         bool pausePressed = p1.input.ConsumePause() | p2.input.ConsumePause();
 
         if (!Paused)
         {
-            if (pausePressed && phase == Phase.Select) { FightFX.I?.PlayMenuMove(); ShowMode(); }
+            if (pausePressed && phase == Phase.Select) { FightFX.I?.PlayMenuMove(); if (UnityEngine.InputSystem.Gamepad.all.Count > 0) ShowPads(); else ShowMode(); }
+            else if (pausePressed && phase == Phase.Pads) { FightFX.I?.PlayMenuMove(); hud.ShowPads(false); ShowMode(); }
+            else if (pausePressed && phase == Phase.Stage && !stageLocked) { FightFX.I?.PlayMenuMove(); ShowSelect(); }
             else if (pausePressed && phase == Phase.Mode) { FightFX.I?.PlayMenuMove(); ShowTitle(); }
             else if (pausePressed && CanPause) Pause();
             return;

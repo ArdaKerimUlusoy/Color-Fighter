@@ -16,12 +16,15 @@ public class FighterInput : MonoBehaviour
     [Tooltip("Kombo saldırısı tuşu. None ise punch tuşuna göre otomatik seçilir (F -> H, K -> Ş/;). Punch+Kick birlikte de çalışır.")]
     public Key combo = Key.None;
 
-    [Header("Gamepad (-1 = kapalı, 0 = ilk gamepad, 1 = ikinci...)")]
+    [Header("Oyuncu (0 = 1P, 1 = 2P). Kollar CONTROLLERS ekranında ◄/► ile oyunculara atanır; kolu olan oyuncu klavyeyle oynamaz.")]
+    [Tooltip("Hangi oyuncunun kolunu okuyacağı. -1 = gamepad kapalı.")]
     public int gamepadIndex = -1;
 
     [Header("Bilgisayar (1P VS CPU)")]
     [Tooltip("Açıkken klavye/gamepad okunmaz; tuşlara CpuBrain basar.")]
     public bool cpuControlled;
+    [Tooltip("Menülerde kol PlayStation düzeninde çalışır: X onay, O geri. MatchManager ayarlar.")]
+    [System.NonSerialized] public bool menuMode;
     [HideInInspector] public bool cpuLeft, cpuRight, cpuUp, cpuDown, cpuPunch, cpuKick, cpuCombo;
 
     [Header("Input buffer (saniye)")]
@@ -62,13 +65,15 @@ public class FighterInput : MonoBehaviour
         bool u = false, d = false, p = false, k = false, ps = false, c = false;
 
         var kb = Keyboard.current;
+        // Kolu olan oyuncu klavyeyle oynamaz (ESC her zaman çalışır)
+        var gp = cpuControlled ? null : GamepadAssign.PadFor(gamepadIndex);
         if (cpuControlled)
         {
             if (cpuLeft) h -= 1f;
             if (cpuRight) h += 1f;
             u = cpuUp; d = cpuDown; p = cpuPunch; k = cpuKick; c = cpuCombo;
         }
-        else if (kb != null)
+        else if (kb != null && gp == null)
         {
             if (kb[left].isPressed) h -= 1f;
             if (kb[right].isPressed) h += 1f;
@@ -80,18 +85,29 @@ public class FighterInput : MonoBehaviour
             if (combo != Key.None) c |= kb[combo].isPressed;
         }
 
-        if (!cpuControlled && gamepadIndex >= 0 && gamepadIndex < Gamepad.all.Count)
+        if (kb != null && !cpuControlled) ps |= kb[pause].isPressed;
+        if (gp != null)
         {
-            var gp = Gamepad.all[gamepadIndex];
             Vector2 s = gp.leftStick.ReadValue() + gp.dpad.ReadValue();
             if (s.x < -0.5f) h -= 1f;
             if (s.x > 0.5f) h += 1f;
             u |= s.y > 0.5f;
             d |= s.y < -0.5f;
-            p |= gp.buttonWest.isPressed;
-            k |= gp.buttonSouth.isPressed;
-            ps |= gp.startButton.isPressed;
-            c |= gp.buttonNorth.isPressed;
+            if (menuMode)
+            {
+                // Menü: X (South) / Options = onay (punch), O (East) = geri (kick), Create = ESC
+                p |= gp.buttonSouth.isPressed || gp.startButton.isPressed;
+                k |= gp.buttonEast.isPressed;
+                ps |= gp.selectButton.isPressed;   // Create = ESC (geri)
+            }
+            else
+            {
+                // Dövüş: Kare = yumruk, X ve O = tekme, Üçgen = kombo, Options = pause
+                p |= gp.buttonWest.isPressed;
+                k |= gp.buttonSouth.isPressed || gp.buttonEast.isPressed;
+                c |= gp.buttonNorth.isPressed;
+                ps |= gp.startButton.isPressed || gp.selectButton.isPressed;   // Options / Create = ESC
+            }
         }
 
         Horizontal = Mathf.Clamp(h, -1f, 1f);
@@ -150,6 +166,16 @@ public class FighterInput : MonoBehaviour
         }
         return false;
     }
+
+    /// <summary>Bu oyuncunun kolu varsa kısa titreşim.</summary>
+    public void Rumble(float low, float high, float seconds)
+    {
+        if (cpuControlled) return;
+        GamepadAssign.Rumble(gamepadIndex, low, high, seconds);
+    }
+
+    /// <summary>Bu oyuncuya atanmış kol (yoksa null).</summary>
+    public Gamepad Pad => cpuControlled ? null : GamepadAssign.PadFor(gamepadIndex);
 
     public void ClearBuffers()
     {

@@ -22,6 +22,10 @@ public class FightHUD : MonoBehaviour
     Image[] comboPips1, comboPips2;
     RectTransform comboTimer1, comboTimer2;
     string comboKey1 = "H", comboKey2 = ";";
+    string kbKey1 = "H", kbKey2 = ";";
+    Text controlsHint, selRule, padGuideHead;
+    GameObject padGuide;
+    string hintState = "";
     GameObject selectGroup;
     FighterPalette.Entry[] palette;
     Image[] cellFrames, cellBGs;
@@ -40,9 +44,30 @@ public class FightHUD : MonoBehaviour
     GameObject modeGroup;
     Text[] modeOptions;
     Text modeDesc;
+    GameObject padsGroup;
+    RectTransform padsColumns;
+    RectTransform[] padIcons;
+    Image[][] padTint;
+    Text[] padLabels;
+    float[] padX, padY;
+    RectTransform[] kbIcons;
+    Text[] kbLabels, kbSubs;
+    float[] kbY = new float[3];
+    int[] padSlot = new int[0];
+    bool[] padHot = new bool[0];
+    bool padsCpu;
+    Text padsHead2, padsKey1, padsKey2, padsEmpty, padsModeLine;
+    const int MaxPadIcons = 3;
     int modeSel;
+    GameObject stageGroup;
+    Text stageName, stageDesc, stageHint, stageTitle;
+    RectTransform stagePipRow;
+    Image[] stagePips;
+    int stageIdx, stageCount;
+    bool stageLocked, stageCpu;
+    string stageLabel = "";
     static readonly string[] ModeLabels = { "1P  VS  2P", "1P  VS  CPU" };
-    static readonly string[] ModeDescs = { "TWO PLAYERS ON ONE KEYBOARD", "FIGHT THE COMPUTER" };
+    static readonly string[] ModeDescs = { "KEYBOARD OR GAMEPAD", "FIGHT THE COMPUTER" };
 
     #endregion
 
@@ -225,6 +250,7 @@ public class FightHUD : MonoBehaviour
         fightGroup.SetActive(!on);
         if (on)
         {
+            if (padsGroup != null) padsGroup.SetActive(false);
             centerText.enabled = false;
             titleShownAt = Time.unscaledTime;
         }
@@ -251,8 +277,8 @@ public class FightHUD : MonoBehaviour
     /// <summary>Seçim ekranını ve kombo sayacını kurar. Birden fazla çağrılabilir.</summary>
     public void EnsureExtras(FighterPalette.Entry[] pal, int comboPips, string key1, string key2)
     {
-        if (!string.IsNullOrEmpty(key1)) comboKey1 = key1;
-        if (!string.IsNullOrEmpty(key2)) comboKey2 = key2;
+        if (!string.IsNullOrEmpty(key1)) comboKey1 = kbKey1 = key1;
+        if (!string.IsNullOrEmpty(key2)) comboKey2 = kbKey2 = key2;
         if (extrasBuilt) return;
         extrasBuilt = true;
         palette = pal;
@@ -294,12 +320,18 @@ public class FightHUD : MonoBehaviour
             Img(band, new Color(0.01f, 0.01f, 0.05f, 0.92f));
             Img(Rect("BandLine", band, new Vector2(0, 1), new Vector2(1, 1), new Vector2(0, -1), Vector2.zero), new Color(1f, 0.85f, 0.2f, 0.9f));
             band.SetSiblingIndex(hint.transform.GetSiblingIndex());
+            controlsHint = hint;
+            BuildPadGuide(titleRoot);
         }
 
         BuildSelect(canvasRoot);
         if (titleGroup != null) selectGroup.transform.SetSiblingIndex(titleGroup.transform.GetSiblingIndex() + 1);
         BuildMode(canvasRoot);
         modeGroup.transform.SetSiblingIndex(selectGroup.transform.GetSiblingIndex() + 1);
+        BuildStage(canvasRoot);
+        stageGroup.transform.SetSiblingIndex(modeGroup.transform.GetSiblingIndex() + 1);
+        BuildPads(canvasRoot);
+        padsGroup.transform.SetSiblingIndex(stageGroup.transform.GetSiblingIndex() + 1);
         BuildKO(canvasRoot);
 
         // Bitirici adı: ekranın üstünde, sağlık barlarının altında
@@ -438,7 +470,7 @@ public class FightHUD : MonoBehaviour
             cellTag2[i].text = "2P";
         }
 
-        var rule = Txt(root, "ComboRule", top2, top2, new Vector2(-120, top - gridH - 26), new Vector2(120, top - gridH - 6), 7, TextAnchor.MiddleCenter, new Color(0.85f, 0.85f, 0.9f));
+        var rule = selRule = Txt(root, "ComboRule", top2, top2, new Vector2(-120, top - gridH - 26), new Vector2(120, top - gridH - 6), 7, TextAnchor.MiddleCenter, new Color(0.85f, 0.85f, 0.9f));
         rule.text = "LAND 3 HITS IN A ROW = COMBO READY\nTHEN PRESS  1P: " + comboKey1 + "   2P: " + comboKey2 + "   OR PUNCH+KICK";
 
         selName1 = Txt(root, "SelName1", Vector2.zero, Vector2.zero, new Vector2(8, 20), new Vector2(150, 38), 15, TextAnchor.MiddleLeft, Color.white);
@@ -567,12 +599,355 @@ public class FightHUD : MonoBehaviour
         modeGroup.SetActive(false);
     }
 
+    #region Sahne seçimi
+
+    void BuildStage(RectTransform parent)
+    {
+        var root = Rect("StageUI", parent, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
+        stageGroup = root.gameObject;
+
+        // Üstte başlık şeridi; sahne arkada canlı görünsün diye ortası boş
+        Img(Rect("TopBand", root, new Vector2(0, 1), new Vector2(1, 1), new Vector2(0, -28), Vector2.zero), new Color(0.02f, 0.01f, 0.06f, 0.8f));
+        Img(Rect("TopLine", root, new Vector2(0, 1), new Vector2(1, 1), new Vector2(0, -29), new Vector2(0, -28)), new Color(1f, 0.85f, 0.2f, 0.9f));
+        stageTitle = Txt(root, "StageTitle", new Vector2(0, 1), new Vector2(1, 1), new Vector2(0, -27), new Vector2(0, -3), 15, TextAnchor.MiddleCenter, new Color(1f, 0.85f, 0.2f));
+        stageTitle.text = "SELECT STAGE";
+
+        var bot = new Vector2(0.5f, 0f);
+        Img(Rect("StageFrame", root, bot, bot, new Vector2(-118, 6), new Vector2(118, 70)), new Color(1f, 0.85f, 0.2f, 0.9f));
+        Img(Rect("StagePanel", root, bot, bot, new Vector2(-116, 8), new Vector2(116, 68)), new Color(0.04f, 0.02f, 0.1f, 0.94f));
+        stageName = Txt(root, "StageName", bot, bot, new Vector2(-116, 46), new Vector2(116, 66), 16, TextAnchor.MiddleCenter, Color.white);
+        stageDesc = Txt(root, "StageDesc", bot, bot, new Vector2(-116, 35), new Vector2(116, 46), 8, TextAnchor.MiddleCenter, new Color(0.75f, 0.85f, 1f));
+        stagePipRow = Rect("StagePips", root, bot, bot, new Vector2(-60, 25), new Vector2(60, 31));
+        stageHint = Txt(root, "StageHint", bot, bot, new Vector2(-116, 10), new Vector2(116, 22), 7, TextAnchor.MiddleCenter, new Color(0.75f, 0.75f, 0.8f));
+        stageGroup.SetActive(false);
+    }
+
+    public void ShowStage(bool on)
+    {
+        if (stageGroup == null) return;
+        stageGroup.SetActive(on);
+        if (on)
+        {
+            if (padsGroup != null) padsGroup.SetActive(false);
+            titleGroup.SetActive(false);
+            fightGroup.SetActive(false);
+            if (selectGroup != null) selectGroup.SetActive(false);
+            if (modeGroup != null) modeGroup.SetActive(false);
+            centerText.enabled = false;
+            RefreshStage();
+        }
+    }
+
+    public void SetStage(int index, int count, string label, string desc, bool locked, bool cpu)
+    {
+        stageIdx = index;
+        stageLabel = label;
+        stageLocked = locked;
+        stageCpu = cpu;
+        if (stageDesc != null) stageDesc.text = desc;
+        if (stagePipRow != null && (stagePips == null || stageCount != count))
+        {
+            for (int i = stagePipRow.childCount - 1; i >= 0; i--) Destroy(stagePipRow.GetChild(i).gameObject);
+            stageCount = count;
+            stagePips = new Image[count];
+            const float w = 14f, gap = 6f;
+            float x0 = -(count * w + (count - 1) * gap) * 0.5f;
+            var mid = new Vector2(0.5f, 0.5f);
+            for (int i = 0; i < count; i++)
+            {
+                float x = x0 + i * (w + gap);
+                stagePips[i] = Img(Rect("Pip" + i, stagePipRow, mid, mid, new Vector2(x, -3), new Vector2(x + w, 3)), PipOff);
+            }
+        }
+        if (stageGroup != null && stageGroup.activeSelf) RefreshStage();
+    }
+
+    void RefreshStage()
+    {
+        bool blink = Mathf.Repeat(Time.unscaledTime, 0.5f) < 0.35f;
+        if (stageName != null)
+        {
+            stageName.text = stageLocked ? stageLabel : (blink ? "<  " + stageLabel + "  >" : "   " + stageLabel + "   ");
+            stageName.color = stageLocked ? PipOn : Color.white;
+        }
+        if (stagePips != null)
+            for (int i = 0; i < stagePips.Length; i++)
+                if (stagePips[i] != null) stagePips[i].color = i == stageIdx ? PipOn : PipOff;
+        if (stageHint != null)
+            stageHint.text = stageLocked ? "GET READY!" :
+                (stageCpu ? "1P: LEFT/RIGHT CHOOSE   PUNCH FIGHT!   KICK BACK" : "LEFT/RIGHT CHOOSE   PUNCH FIGHT!   KICK BACK");
+    }
+
+    #endregion
+
+    #region Kol tuş anlatımı
+
+    const string Sq = "<color=#FF80C8>\u25A1</color>", Cr = "<color=#70A8FF>X</color>", Ci = "<color=#FF6060>\u25CB</color>", Tr = "<color=#50F0A0>\u25B2</color>";
+
+    /// <summary>Başlangıç ekranında, kolla oynayanlar için sade tuş şeridi: [□] PUNCH  [X] KICK  [▲] COMBO  [≡] PAUSE</summary>
+    void BuildPadGuide(RectTransform titleRoot)
+    {
+        var bot = new Vector2(0.5f, 0f);
+        var g = Rect("PadGuide", titleRoot, bot, bot, new Vector2(-122, 37), new Vector2(122, 57));
+        padGuide = g.gameObject;
+        Img(Rect("Panel", g, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero), new Color(0.01f, 0.01f, 0.05f, 0.85f));
+        Img(Rect("Line", g, new Vector2(0, 1), new Vector2(1, 1), new Vector2(0, -1), Vector2.zero), new Color(0.3f, 0.9f, 1f, 0.8f));
+
+        // Solda kimin kolu olduğu (1P / 2P / 1P+2P)
+        var tagBG = Rect("TagBG", g, new Vector2(0, 0), new Vector2(0, 1), new Vector2(0, 0), new Vector2(30, -1));
+        Img(tagBG, new Color(0.3f, 0.9f, 1f, 0.9f));
+        padGuideHead = Txt(tagBG, "Tag", Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero, 8, TextAnchor.MiddleCenter, new Color(0.02f, 0.02f, 0.08f));
+        padGuideHead.GetComponent<Outline>().enabled = false;
+
+        string[] glyph = { "\u25A1", "X", "\u25B2", "\u2261" };
+        Color[] col = { new Color(1f, 0.5f, 0.78f), new Color(0.45f, 0.66f, 1f), new Color(0.32f, 0.94f, 0.62f), new Color(0.85f, 0.85f, 0.9f) };
+        string[] label = { "PUNCH", "KICK", "COMBO", "PAUSE" };
+        const float x0 = 36f, step = 52f;
+        var left = new Vector2(0, 0.5f);
+        for (int i = 0; i < glyph.Length; i++)
+        {
+            float x = x0 + i * step;
+            // Yuvarlak tuş hissi: renkli çerçeve + koyu iç + sembol
+            Img(Rect("Btn" + i, g, left, left, new Vector2(x, -7), new Vector2(x + 14, 7)), col[i]);
+            Img(Rect("BtnIn" + i, g, left, left, new Vector2(x + 1, -6), new Vector2(x + 13, 6)), new Color(0.06f, 0.06f, 0.1f));
+            var t = Txt(g, "Glyph" + i, left, left, new Vector2(x, -7), new Vector2(x + 14, 7), 9, TextAnchor.MiddleCenter, col[i]);
+            t.text = glyph[i];
+            t.GetComponent<Outline>().enabled = false;
+            Txt(g, "Label" + i, left, left, new Vector2(x + 17, -6), new Vector2(x + 50, 6), 8, TextAnchor.MiddleLeft, Color.white).text = label[i];
+        }
+        padGuide.SetActive(false);
+    }
+
+    /// <summary>pad1/pad2: o oyuncunun kolu var mı. Başlangıç yazısı, kol rehberi, seçim ekranı ve kombo göstergesi buna göre değişir.</summary>
+    public void SetControlHints(bool pad1, bool pad2, string key1, string key2, bool anyPad = false)
+    {
+        if (pressStart != null) pressStart.text = anyPad ? "PRESS PUNCH OR X TO START" : "PRESS PUNCH TO START";
+        if (!string.IsNullOrEmpty(key1)) kbKey1 = key1;
+        if (!string.IsNullOrEmpty(key2) && key2 != "CPU") kbKey2 = key2;
+        bool cpu = key2 == "CPU";
+        string state = pad1 + "|" + pad2 + "|" + cpu + "|" + kbKey1 + "|" + kbKey2;
+        if (state == hintState) return;
+        hintState = state;
+
+        comboKey1 = pad1 ? Tr : kbKey1;
+        comboKey2 = cpu ? "CPU" : (pad2 ? Tr : kbKey2);
+
+        if (controlsHint != null)
+        {
+            controlsHint.supportRichText = true;
+            string a = "<color=#FFA020>1P</color> " + (pad1 ? "GAMEPAD" : "WASD + F G " + kbKey1);
+            string b = "<color=#40E0FF>2P</color> " + (pad2 ? "GAMEPAD" : "ARROWS + K L " + kbKey2);
+            controlsHint.text = a + "      " + b + "      ESC PAUSE";
+        }
+        if (padGuide != null)
+        {
+            padGuide.SetActive(pad1 || pad2);
+            padGuideHead.text = pad1 && pad2 ? "1P 2P" : pad1 ? "1P" : "2P";
+        }
+        if (selRule != null)
+        {
+            selRule.supportRichText = true;
+            selRule.text = "LAND 3 HITS IN A ROW = COMBO READY\nTHEN PRESS  1P: " + (pad1 ? Tr : kbKey1) + "   " + (cpu ? "" : "2P: " + (pad2 ? Tr : kbKey2) + "   ") + "OR PUNCH+KICK";
+        }
+    }
+
+    #endregion
+
+    #region Kol eşleştirme ekranı (FIFA tarzı)
+
+    void BuildPads(RectTransform parent)
+    {
+        var root = Rect("PadsUI", parent, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
+        padsGroup = root.gameObject;
+        var mid = new Vector2(0.5f, 0.5f);
+        Img(Rect("Dim", root, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero), new Color(0f, 0f, 0.03f, 0.72f));
+
+        var title = Txt(root, "PadsTitle", mid, mid, new Vector2(-140, 68), new Vector2(140, 88), 15, TextAnchor.MiddleCenter, new Color(1f, 0.85f, 0.2f));
+        title.text = "CONTROLLERS";
+        padsModeLine = Txt(root, "PadsMode", mid, mid, new Vector2(-140, 59), new Vector2(140, 68), 7, TextAnchor.MiddleCenter, new Color(0.75f, 0.85f, 1f));
+
+        // Üç sütun: 1P  |  boşta  |  2P (CPU modunda "CPU")
+        float[] cx = { -94f, 0f, 94f };
+        Color[] frame = { Cursor1, new Color(0.45f, 0.45f, 0.55f), Cursor2 };
+        Color[] fill = { new Color(0.16f, 0.08f, 0.02f, 0.95f), new Color(0.05f, 0.04f, 0.1f, 0.95f), new Color(0.02f, 0.1f, 0.14f, 0.95f) };
+        for (int i = 0; i < 3; i++)
+        {
+            float hw = i == 1 ? 42f : 44f;
+            Img(Rect("ColFrame" + i, root, mid, mid, new Vector2(cx[i] - hw - 1, -59), new Vector2(cx[i] + hw + 1, 57)), frame[i]);
+            Img(Rect("Col" + i, root, mid, mid, new Vector2(cx[i] - hw, -58), new Vector2(cx[i] + hw, 56)), fill[i]);
+            Img(Rect("ColHeadBG" + i, root, mid, mid, new Vector2(cx[i] - hw, 40), new Vector2(cx[i] + hw, 56)), new Color(frame[i].r, frame[i].g, frame[i].b, 0.25f));
+        }
+        Txt(root, "Head1", mid, mid, new Vector2(-138, 40), new Vector2(-50, 56), 13, TextAnchor.MiddleCenter, Cursor1).text = "1P";
+        Txt(root, "Head0", mid, mid, new Vector2(-42, 40), new Vector2(42, 56), 7, TextAnchor.MiddleCenter, new Color(0.6f, 0.6f, 0.7f)).text = "NOT PLAYING";
+        padsHead2 = Txt(root, "Head2", mid, mid, new Vector2(50, 40), new Vector2(138, 56), 13, TextAnchor.MiddleCenter, Cursor2);
+
+        padsColumns = Rect("PadIcons", root, mid, mid, Vector2.zero, Vector2.zero);
+        padIcons = new RectTransform[MaxPadIcons];
+        padTint = new Image[MaxPadIcons][];
+        padLabels = new Text[MaxPadIcons];
+        padX = new float[MaxPadIcons];
+        padY = new float[MaxPadIcons];
+        // Klavye ikonları: 0 = 1P sütunu, 1 = orta (kullanılmıyor), 2 = 2P sütunu
+        kbIcons = new RectTransform[3];
+        kbLabels = new Text[3];
+        kbSubs = new Text[3];
+        for (int k = 0; k < 3; k++)
+        {
+            kbIcons[k] = MakeKeyboardIcon(padsColumns, k, out kbLabels[k], out kbSubs[k]);
+            kbIcons[k].anchoredPosition = new Vector2((k - 1) * 94f, 22f);
+            kbIcons[k].gameObject.SetActive(false);
+        }
+        for (int i = 0; i < MaxPadIcons; i++)
+        {
+            padIcons[i] = MakePadIcon(padsColumns, i, out padTint[i], out padLabels[i]);
+            padIcons[i].anchoredPosition = new Vector2(0f, 22f - i * 30f);
+            padIcons[i].gameObject.SetActive(false);
+        }
+        padsEmpty = Txt(root, "PadsEmpty", mid, mid, new Vector2(-42, -20), new Vector2(42, 20), 7, TextAnchor.MiddleCenter, new Color(0.7f, 0.7f, 0.78f));
+        padsEmpty.text = "CONNECT\nA GAMEPAD";
+
+        padsKey1 = Txt(root, "Key1", mid, mid, new Vector2(-140, -74), new Vector2(140, -63), 7, TextAnchor.MiddleCenter, new Color(0.75f, 0.8f, 0.9f));
+        padsKey2 = Txt(root, "Key2", mid, mid, new Vector2(50, -6), new Vector2(138, 6), 9, TextAnchor.MiddleCenter, new Color(0.75f, 0.75f, 0.8f));
+        var hint = Txt(root, "PadsHint", mid, mid, new Vector2(-140, -90), new Vector2(140, -78), 7, TextAnchor.MiddleCenter, Color.white);
+        hint.text = "PAD  < >  MOVE      X / PUNCH  START      O / KICK  BACK";
+        padsGroup.SetActive(false);
+    }
+
+    /// <summary>Basit gamepad ikonu: gövde, iki tutamak, yön tuşu, analoglar, dört tuş, altında etiket.</summary>
+    RectTransform MakePadIcon(RectTransform parent, int index, out Image[] tint, out Text label)
+    {
+        var mid = new Vector2(0.5f, 0.5f);
+        var r = Rect("Pad" + index, parent, mid, mid, new Vector2(-20f, -14f), new Vector2(20f, 14f));
+        Color c = new Color(0.8f, 0.8f, 0.85f), d = new Color(0.08f, 0.08f, 0.12f);
+        Image V(string n, float x0, float y0, float x1, float y1, Color col) => Img(Rect(n, r, mid, mid, new Vector2(x0, y0), new Vector2(x1, y1)), col);
+        var body = V("Body", -14, -3, 14, 8, c);
+        var gl = V("GripL", -17, -10, -8, 5, c);
+        var gr = V("GripR", 8, -10, 17, 5, c);
+        V("DpadH", -14, 1, -8, 3, d);
+        V("DpadV", -12, -1, -10, 5, d);
+        V("BtnT", 9, 4, 11, 6, d);
+        V("BtnL", 7, 1, 9, 3, d);
+        V("BtnR", 11, 1, 13, 3, d);
+        V("BtnB", 9, -2, 11, 0, d);
+        V("StickL", -6, -3, -2, 1, d);
+        V("StickR", 2, -3, 6, 1, d);
+        V("Light", -4, 6, 4, 7, new Color(0.3f, 0.6f, 1f));
+        tint = new[] { body, gl, gr };
+        label = Txt(r, "Label", mid, mid, new Vector2(-24f, -21f), new Vector2(24f, -11f), 7, TextAnchor.MiddleCenter, Color.white);
+        return r;
+    }
+
+    public void ShowPads(bool on)
+    {
+        if (padsGroup == null) return;
+        padsGroup.SetActive(on);
+        if (on)
+        {
+            titleGroup.SetActive(false);
+            fightGroup.SetActive(false);
+            if (selectGroup != null) selectGroup.SetActive(false);
+            if (modeGroup != null) modeGroup.SetActive(false);
+            if (stageGroup != null) stageGroup.SetActive(false);
+            centerText.enabled = false;
+            for (int i = 0; i < MaxPadIcons; i++) padX[i] = float.NaN;   // ilk karede yerine otursun
+            RefreshPads();
+        }
+    }
+
+    /// <summary>slots: her kolun yeri (0 = 1P, 1 = 2P, -1 boşta). hot: o kolda şu an tuşa basılıyor mu (hangi kol hangisi anlaşılsın).</summary>
+    public void SetPads(int[] slots, bool[] hot, bool cpu)
+    {
+        padSlot = slots ?? new int[0];
+        padHot = hot ?? new bool[0];
+        padsCpu = cpu;
+    }
+
+    /// <summary>Klavye ikonu: çerçeve, üç sıra tuş, boşluk tuşu; altında etiket ve tuş listesi.</summary>
+    RectTransform MakeKeyboardIcon(RectTransform parent, int index, out Text label, out Text sub)
+    {
+        var mid = new Vector2(0.5f, 0.5f);
+        var r = Rect("Keyboard" + index, parent, mid, mid, new Vector2(-22f, -14f), new Vector2(22f, 14f));
+        Color frame = new Color(0.8f, 0.8f, 0.85f), body = new Color(0.12f, 0.12f, 0.16f), key = new Color(0.85f, 0.85f, 0.9f);
+        Img(Rect("Frame", r, mid, mid, new Vector2(-20, -6), new Vector2(20, 10)), frame);
+        Img(Rect("Body", r, mid, mid, new Vector2(-19, -5), new Vector2(19, 9)), body);
+        for (int row = 0; row < 3; row++)
+        {
+            int keys = row == 0 ? 9 : row == 1 ? 8 : 7;
+            float w = 3f, gap = 1f, total = keys * w + (keys - 1) * gap, x0 = -total * 0.5f + row * 0.5f, y = 6f - row * 3.5f;
+            for (int k = 0; k < keys; k++)
+                Img(Rect("K", r, mid, mid, new Vector2(x0 + k * (w + gap), y - 1.5f), new Vector2(x0 + k * (w + gap) + w, y + 1f)), key);
+        }
+        Img(Rect("Space", r, mid, mid, new Vector2(-8, -3.5f), new Vector2(8, -1.5f)), key);
+        label = Txt(r, "Label", mid, mid, new Vector2(-30f, -16f), new Vector2(30f, -7f), 7, TextAnchor.MiddleCenter, Color.white);
+        sub = Txt(r, "Sub", mid, mid, new Vector2(-40f, -24f), new Vector2(40f, -16f), 6, TextAnchor.MiddleCenter, new Color(0.75f, 0.75f, 0.82f));
+        return r;
+    }
+
+    void RefreshPads()
+    {
+        float dt = Time.unscaledDeltaTime;
+        float ease = 1f - Mathf.Exp(-16f * dt);
+        int n = Mathf.Min(padSlot.Length, MaxPadIcons);
+        padsEmpty.enabled = n == 0;
+        padsHead2.text = padsCpu ? "CPU" : "2P";
+        padsHead2.color = padsCpu ? new Color(0.75f, 0.75f, 0.8f) : Cursor2;
+        padsModeLine.text = padsCpu ? "1P VS CPU  -  CHOOSE YOUR CONTROLLER" : "1P VS 2P  -  CHOOSE YOUR CONTROLLERS";
+
+        bool has1 = false, has2 = false;
+        for (int i = 0; i < n; i++) { if (padSlot[i] == 0) has1 = true; else if (padSlot[i] == 1) has2 = true; }
+
+        // Her sütunda yukarıdan aşağı sıra: önce kollar, ortada en altta kullanılmayan klavye
+        int[] rows = new int[3];
+        for (int i = 0; i < MaxPadIcons; i++)
+        {
+            bool on = i < n;
+            padIcons[i].gameObject.SetActive(on);
+            if (!on) { padX[i] = float.NaN; continue; }
+            int sl = padSlot[i];
+            int col = sl == 0 ? 0 : sl == 1 ? 2 : 1;
+            float tx = (col - 1) * 94f, ty = 26f - rows[col]++ * 31f;
+            if (float.IsNaN(padX[i])) { padX[i] = tx; padY[i] = ty; }
+            padX[i] = Mathf.Lerp(padX[i], tx, ease);
+            padY[i] = Mathf.Lerp(padY[i], ty, ease);
+            bool hot = i < padHot.Length && padHot[i];
+            padIcons[i].anchoredPosition = new Vector2(padX[i], padY[i] + (hot ? 1.5f : 0f));
+            padIcons[i].localScale = Vector3.one * (hot ? 1.12f : 1f);
+            Color c = sl == 0 ? Cursor1 : sl == 1 ? Cursor2 : new Color(0.72f, 0.72f, 0.78f);
+            if (hot) c = Color.Lerp(c, Color.white, 0.55f);
+            foreach (var img in padTint[i]) img.color = c;
+            padLabels[i].text = "PAD " + (i + 1);
+            padLabels[i].color = sl == -1 ? new Color(0.75f, 0.75f, 0.8f) : Color.white;
+        }
+
+        // Klavye: kolu olmayan oyuncunun sütununda; iki oyuncunun da kolu varsa (ya da CPU modunda 1P'nin) ortada, kullanılmıyor
+        bool kb1 = !has1, kb2 = !padsCpu && !has2, kbMid = !kb1 && !kb2;
+        bool[] show = { kb1, kbMid, kb2 };
+        for (int k = 0; k < 3; k++)
+        {
+            kbIcons[k].gameObject.SetActive(show[k]);
+            if (!show[k]) continue;
+            float ty = 26f - rows[k]++ * 31f;
+            kbY[k] = kbIcons[k].gameObject.activeSelf && kbY[k] != 0f ? Mathf.Lerp(kbY[k], ty, ease) : ty;
+            kbIcons[k].anchoredPosition = new Vector2((k - 1) * 94f, kbY[k]);
+        }
+        kbLabels[0].text = "KEYBOARD"; kbSubs[0].text = "WASD + F G " + kbKey1;
+        kbLabels[2].text = "KEYBOARD"; kbSubs[2].text = "ARROWS + K L " + kbKey2;
+        kbLabels[1].text = "KEYBOARD"; kbSubs[1].text = "OFF";
+        kbLabels[1].color = new Color(0.6f, 0.6f, 0.68f);
+
+        padsKey1.text = kbMid ? "ALL PLAYERS ON GAMEPAD  -  KEYBOARD IS OFF" : (has1 || has2) ? "PLAYERS WITH A GAMEPAD DON'T USE THE KEYBOARD" : "NO PAD ASSIGNED  -  BOTH PLAYERS ON KEYBOARD";
+        padsKey2.text = padsCpu ? "COMPUTER" : "";
+    }
+
+    #endregion
+
     public void ShowMode(bool on)
     {
         if (modeGroup == null) return;
         modeGroup.SetActive(on);
         if (on)
         {
+            if (padsGroup != null) padsGroup.SetActive(false);
             titleGroup.SetActive(false);
             fightGroup.SetActive(false);
             if (selectGroup != null) selectGroup.SetActive(false);
@@ -599,6 +974,7 @@ public class FightHUD : MonoBehaviour
     public void SetCpuMode(bool on, string key2)
     {
         cpuMode = on;
+        if (!string.IsNullOrEmpty(key2) && key2 != "CPU") kbKey2 = key2;
         if (!string.IsNullOrEmpty(key2)) comboKey2 = key2;
         if (cellTag2 != null) foreach (var t in cellTag2) t.text = on ? "CPU" : "2P";
     }
@@ -611,6 +987,7 @@ public class FightHUD : MonoBehaviour
         selectGroup.SetActive(on);
         if (on)
         {
+            if (padsGroup != null) padsGroup.SetActive(false);
             titleGroup.SetActive(false);
             fightGroup.SetActive(false);
             centerText.enabled = false;
@@ -709,6 +1086,8 @@ public class FightHUD : MonoBehaviour
         if (pauseGroup.activeSelf) RefreshPauseOptions(Mathf.Repeat(Time.unscaledTime, 0.5f) < 0.35f);
         if (selectGroup != null && selectGroup.activeSelf) RefreshSelect();
         if (modeGroup != null && modeGroup.activeSelf) RefreshMode();
+        if (stageGroup != null && stageGroup.activeSelf) RefreshStage();
+        if (padsGroup != null && padsGroup.activeSelf) RefreshPads();
         if (koStart >= 0f && koText != null) AnimateKO();
         if (finisherText != null && finisherText.enabled)
         {
