@@ -58,6 +58,8 @@ public class MatchManager : MonoBehaviour
         p1.OnComboTaken += OnCombo;
         p2.OnComboTaken += OnCombo;
         p1.OnComboUnleashed += OnComboUnleashed;
+        p1.OnFinisherStart += OnFinisherStart;
+        p2.OnFinisherStart += OnFinisherStart;
         p2.OnComboUnleashed += OnComboUnleashed;
         if (FightFX.I != null) FightFX.I.OnFlash += hud.Flash;
 
@@ -87,6 +89,13 @@ public class MatchManager : MonoBehaviour
     void OnCombo(Fighter victim, int hits)
     {
         if (hits >= 2) hud.ShowCombo(victim == p2 ? 0 : 1, hits);
+    }
+
+    void OnFinisherStart(Fighter attacker, Fighter victim)
+    {
+        Color c = ColorOf(attacker);
+        hud.ShowFinisherName(attacker.ActiveFinisher != null ? attacker.ActiveFinisher.name : "FINISH!", c);
+        hud.Flash(c, 0.55f);
     }
 
     void OnComboUnleashed(Fighter f)
@@ -246,6 +255,7 @@ public class MatchManager : MonoBehaviour
         if (cpuPickTimer >= 0.9f)
         {
             locked[1] = true;
+            p2.styleIndex = cursor[1];
             p2.SetWin();
             FightFX.I?.PlayMenuSelect();
         }
@@ -294,6 +304,7 @@ public class MatchManager : MonoBehaviour
             else
             {
                 locked[side] = true;
+                f.styleIndex = cursor[side];   // seçim ekranında o rengin sevinci
                 f.SetWin();
                 FightFX.I?.PlayMenuSelect();
             }
@@ -337,6 +348,7 @@ public class MatchManager : MonoBehaviour
         p1Color = a.color; p2Color = b.color;
         p1.fighterName = a.name; p2.fighterName = vsCpu ? b.name + " CPU" : b.name;
         p1.mainColor = a.color; p2.mainColor = b.color;
+        p1.styleIndex = cursor[0]; p2.styleIndex = cursor[1];
         rig1.Recolor(a.color);
         rig2.Recolor(b.color);
         hud.SetPlayers(a.name, b.name, a.color, b.color);
@@ -435,7 +447,7 @@ public class MatchManager : MonoBehaviour
 
         p1.Tick(dt);
         p2.Tick(dt);
-        ResolveBodies();
+        if (!p1.InFinisher && !p2.InFinisher) ResolveBodies();
         p1.SyncTransform();
         p2.SyncTransform();
 
@@ -477,9 +489,11 @@ public class MatchManager : MonoBehaviour
                 break;
 
             case Phase.Fight:
-                timeLeft = Mathf.Max(0f, timeLeft - dt);
-                if (p1.Health <= 0 || p2.Health <= 0) EndRound(true);
-                else if (timeLeft <= 0f) EndRound(false);
+                // Bitirici sürerken süre işlemez ve raunt bitmez; son darbe (K.O.) gelince biter
+                bool finishing = p1.BeingFinished || p2.BeingFinished;
+                if (!finishing) timeLeft = Mathf.Max(0f, timeLeft - dt);
+                if ((p1.Health <= 0 || p2.Health <= 0) && !finishing) EndRound(true);
+                else if (timeLeft <= 0f && !finishing) EndRound(false);
                 break;
 
             case Phase.RoundOver:
@@ -654,7 +668,13 @@ public class MatchManager : MonoBehaviour
 
     public static readonly Quaternion CameraRotation = Quaternion.Euler(7f, 0f, 0f);
 
-    Vector3 TargetCamPos() { return CameraPosFor(p1.X, p2.X, Mathf.Max(p1.Y, p2.Y)); }
+    Vector3 TargetCamPos()
+    {
+        var pos = CameraPosFor(p1.X, p2.X, Mathf.Max(p1.Y, p2.Y));
+        // Bitirici sırasında sinematik yakın çekim
+        if (p1.InFinisher || p2.InFinisher || p1.BeingFinished || p2.BeingFinished) { pos.z += 1.4f; pos.y -= 0.15f; }
+        return pos;
+    }
 
     void LateUpdate()
     {

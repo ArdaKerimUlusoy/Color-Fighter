@@ -146,6 +146,28 @@ public class FightFX : MonoBehaviour
         ArcadeAmbience.CheerAll(1.2f);
     }
 
+    /// <summary>Bitirici başladı: kısa donma, renkli patlama, süper sesi.</summary>
+    public void OnFinisherStart(Vector3 p, Color c)
+    {
+        AddHitstop(26);
+        Shake(0.12f);
+        SpawnSpark(p, c, 1.4f, 18);
+        SpawnSpark(p, Color.white, 0.7f, 10);
+        Play(sSuper, 0.8f);
+        Play(sHitHeavy, 0.7f);
+        ArcadeAmbience.CheerAll(2f);
+    }
+
+    /// <summary>Bitiricinin ara vuruşu: oyuncunun renginde kıvılcım.</summary>
+    public void OnFinisherHit(Vector3 p, Color c)
+    {
+        AddHitstop(4);
+        Shake(0.07f);
+        SpawnSpark(p, c, 0.65f, 10);
+        SpawnSpark(p, Color.white, 0.3f, 5);
+        Play(Random.value < 0.5f ? sHitHeavy : sHitLight, Random.Range(0.95f, 1.15f));
+    }
+
     public void OnKO(Vector3 p)
     {
         ArcadeAmbience.CheerAll(3f);

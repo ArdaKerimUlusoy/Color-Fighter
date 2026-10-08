@@ -35,6 +35,8 @@ public class FightHUD : MonoBehaviour
     RectTransform koBand;
     Image koBandImg;
     float koStart = -1f;
+    Text finisherText;
+    float finisherShownAt = -10f;
     GameObject modeGroup;
     Text[] modeOptions;
     Text modeDesc;
@@ -299,6 +301,12 @@ public class FightHUD : MonoBehaviour
         BuildMode(canvasRoot);
         modeGroup.transform.SetSiblingIndex(selectGroup.transform.GetSiblingIndex() + 1);
         BuildKO(canvasRoot);
+
+        // Bitirici adı: ekranın üstünde, sağlık barlarının altında
+        finisherText = Txt(fightRoot, "FinisherName", new Vector2(0, 1), new Vector2(1, 1), new Vector2(0, -74), new Vector2(0, -54), 15, TextAnchor.MiddleCenter, Color.white);
+        finisherText.fontStyle = FontStyle.BoldAndItalic;
+        finisherText.GetComponent<Outline>().effectDistance = new Vector2(1.5f, -1.5f);
+        finisherText.enabled = false;
         flash.transform.SetAsLastSibling();
     }
 
@@ -476,6 +484,17 @@ public class FightHUD : MonoBehaviour
         koBand.gameObject.SetActive(true);
         Flash(Color.white, 0.9f);
         AnimateKO();
+    }
+
+    /// <summary>Bitiricinin adı: oyuncu renginde, büyüyerek gelir, 1.8 sn kalır.</summary>
+    public void ShowFinisherName(string name, Color c)
+    {
+        if (finisherText == null) return;
+        finisherText.text = name;
+        finisherText.color = Color.Lerp(c, Color.white, 0.25f);
+        finisherText.enabled = true;
+        finisherText.rectTransform.localScale = Vector3.one * 2.2f;
+        finisherShownAt = Time.unscaledTime;
     }
 
     public void HideKO()
@@ -691,6 +710,13 @@ public class FightHUD : MonoBehaviour
         if (selectGroup != null && selectGroup.activeSelf) RefreshSelect();
         if (modeGroup != null && modeGroup.activeSelf) RefreshMode();
         if (koStart >= 0f && koText != null) AnimateKO();
+        if (finisherText != null && finisherText.enabled)
+        {
+            float ft = Time.unscaledTime - finisherShownAt;
+            var fr = finisherText.rectTransform;
+            fr.localScale = Vector3.Lerp(fr.localScale, Vector3.one, 1f - Mathf.Exp(-12f * Time.unscaledDeltaTime));
+            if (ft > 1.8f) finisherText.enabled = false;
+        }
     }
 
     void AnimateTitle()

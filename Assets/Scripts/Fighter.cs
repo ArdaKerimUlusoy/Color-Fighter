@@ -1,6 +1,6 @@
 using UnityEngine;
 
-public enum FState { Idle, Walk, Crouch, Guard, Jump, Attack, Hitstun, Blockstun, Knockdown, KO, Win }
+public enum FState { Idle, Walk, Crouch, Guard, Jump, Attack, Hitstun, Blockstun, Knockdown, KO, Win, Finisher }
 
 public class Fighter : MonoBehaviour
 {
@@ -21,43 +21,117 @@ public class Fighter : MonoBehaviour
 
     [Header("Can")]
     public int maxHealth = 100;
+    [Tooltip("Bu dövüşçünün aldığı hasar bu sayıyla çarpılır. Düşük = canlar daha yavaş azalır, raunt uzar.")]
+    [Range(0.2f, 1.5f)] public float damageTaken = 0.5f;
 
     [Header("Saldırılar")]
-    public MoveData standPunch = new MoveData {
-        name = "Jab", pose = AttackPose.StandPunch,
-        startup = 4, active = 3, recovery = 8, damage = 6, level = HitLevel.Mid,
-        hitboxOffset = new Vector2(0.75f, 1.38f), hitboxSize = new Vector2(0.6f, 0.3f),
-        hitstun = 14, blockstun = 10, hitstop = 6, pushback = 3f, lunge = 0.6f, cancelable = true };
+    public MoveData standPunch = new MoveData
+    {
+        name = "Jab",
+        pose = AttackPose.StandPunch,
+        startup = 4,
+        active = 3,
+        recovery = 8,
+        damage = 6,
+        level = HitLevel.Mid,
+        hitboxOffset = new Vector2(0.75f, 1.38f),
+        hitboxSize = new Vector2(0.6f, 0.3f),
+        hitstun = 14,
+        blockstun = 10,
+        hitstop = 6,
+        pushback = 3f,
+        lunge = 0.6f,
+        cancelable = true
+    };
 
-    public MoveData standKick = new MoveData {
-        name = "Kick", pose = AttackPose.StandKick,
-        startup = 9, active = 4, recovery = 16, damage = 14, level = HitLevel.Mid,
-        hitboxOffset = new Vector2(1.0f, 0.95f), hitboxSize = new Vector2(0.8f, 0.35f),
-        hitstun = 20, blockstun = 14, hitstop = 10, pushback = 4.5f, lunge = 1.2f };
+    public MoveData standKick = new MoveData
+    {
+        name = "Kick",
+        pose = AttackPose.StandKick,
+        startup = 9,
+        active = 4,
+        recovery = 16,
+        damage = 14,
+        level = HitLevel.Mid,
+        hitboxOffset = new Vector2(1.0f, 0.95f),
+        hitboxSize = new Vector2(0.8f, 0.35f),
+        hitstun = 20,
+        blockstun = 14,
+        hitstop = 10,
+        pushback = 4.5f,
+        lunge = 1.2f
+    };
 
-    public MoveData crouchPunch = new MoveData {
-        name = "Crouch Jab", pose = AttackPose.CrouchPunch,
-        startup = 5, active = 3, recovery = 9, damage = 5, level = HitLevel.Mid,
-        hitboxOffset = new Vector2(0.7f, 0.95f), hitboxSize = new Vector2(0.6f, 0.3f),
-        hitstun = 13, blockstun = 9, hitstop = 6, pushback = 2.5f, cancelable = true };
+    public MoveData crouchPunch = new MoveData
+    {
+        name = "Crouch Jab",
+        pose = AttackPose.CrouchPunch,
+        startup = 5,
+        active = 3,
+        recovery = 9,
+        damage = 5,
+        level = HitLevel.Mid,
+        hitboxOffset = new Vector2(0.7f, 0.95f),
+        hitboxSize = new Vector2(0.6f, 0.3f),
+        hitstun = 13,
+        blockstun = 9,
+        hitstop = 6,
+        pushback = 2.5f,
+        cancelable = true
+    };
 
-    public MoveData crouchKick = new MoveData {
-        name = "Sweep", pose = AttackPose.CrouchKick,
-        startup = 10, active = 4, recovery = 22, damage = 12, level = HitLevel.Low,
-        hitboxOffset = new Vector2(0.9f, 0.2f), hitboxSize = new Vector2(0.9f, 0.3f),
-        hitstun = 30, blockstun = 12, hitstop = 10, pushback = 2f, knockdown = true, launch = 3f };
+    public MoveData crouchKick = new MoveData
+    {
+        name = "Sweep",
+        pose = AttackPose.CrouchKick,
+        startup = 10,
+        active = 4,
+        recovery = 22,
+        damage = 12,
+        level = HitLevel.Low,
+        hitboxOffset = new Vector2(0.9f, 0.2f),
+        hitboxSize = new Vector2(0.9f, 0.3f),
+        hitstun = 30,
+        blockstun = 12,
+        hitstop = 10,
+        pushback = 2f,
+        knockdown = true,
+        launch = 3f
+    };
 
-    public MoveData airPunch = new MoveData {
-        name = "Air Punch", pose = AttackPose.AirPunch,
-        startup = 5, active = 8, recovery = 6, damage = 8, level = HitLevel.High,
-        hitboxOffset = new Vector2(0.6f, 1.1f), hitboxSize = new Vector2(0.6f, 0.5f),
-        hitstun = 16, blockstun = 12, hitstop = 7, pushback = 2.5f };
+    public MoveData airPunch = new MoveData
+    {
+        name = "Air Punch",
+        pose = AttackPose.AirPunch,
+        startup = 5,
+        active = 8,
+        recovery = 6,
+        damage = 8,
+        level = HitLevel.High,
+        hitboxOffset = new Vector2(0.6f, 1.1f),
+        hitboxSize = new Vector2(0.6f, 0.5f),
+        hitstun = 16,
+        blockstun = 12,
+        hitstop = 7,
+        pushback = 2.5f
+    };
 
-    public MoveData airKick = new MoveData {
-        name = "Air Kick", pose = AttackPose.AirKick,
-        startup = 7, active = 10, recovery = 6, damage = 12, level = HitLevel.High,
-        hitboxOffset = new Vector2(0.7f, 0.6f), hitboxSize = new Vector2(0.7f, 0.45f),
-        hitstun = 18, blockstun = 14, hitstop = 9, pushback = 3f };
+    public MoveData airKick = new MoveData
+    {
+        name = "Air Kick",
+        pose = AttackPose.AirKick,
+        startup = 7,
+        active = 10,
+        recovery = 6,
+        damage = 12,
+        level = HitLevel.High,
+        hitboxOffset = new Vector2(0.7f, 0.6f),
+        hitboxSize = new Vector2(0.7f, 0.45f),
+        hitstun = 18,
+        blockstun = 14,
+        hitstop = 9,
+        pushback = 3f
+    };
 
     [Header("Kombo sistemi")]
     [Tooltip("Peş peşe kaç isabetli vuruştan sonra kombo hakkı açılır.")]
@@ -69,24 +143,64 @@ public class Fighter : MonoBehaviour
     [Tooltip("Bitiriş aparkatında yukarı zıplama hızı.")]
     public float finisherHop = 5.5f;
 
-    public MoveData comboRush1 = new MoveData {
-        name = "Color Rush", pose = AttackPose.ComboRushA,
-        startup = 3, active = 4, recovery = 12, damage = 9, level = HitLevel.Mid,
-        hitboxOffset = new Vector2(0.8f, 1.2f), hitboxSize = new Vector2(0.8f, 0.5f),
-        hitstun = 26, blockstun = 18, hitstop = 7, pushback = 0.6f, lunge = 9f, isSuper = true };
+    public MoveData comboRush1 = new MoveData
+    {
+        name = "Color Rush",
+        pose = AttackPose.ComboRushA,
+        startup = 3,
+        active = 4,
+        recovery = 12,
+        damage = 9,
+        level = HitLevel.Mid,
+        hitboxOffset = new Vector2(0.8f, 1.2f),
+        hitboxSize = new Vector2(0.8f, 0.5f),
+        hitstun = 26,
+        blockstun = 18,
+        hitstop = 7,
+        pushback = 0.6f,
+        lunge = 9f,
+        isSuper = true
+    };
 
-    public MoveData comboRush2 = new MoveData {
-        name = "Spin Kick", pose = AttackPose.ComboRushB,
-        startup = 6, active = 4, recovery = 12, damage = 9, level = HitLevel.Mid,
-        hitboxOffset = new Vector2(0.95f, 1.2f), hitboxSize = new Vector2(0.9f, 0.5f),
-        hitstun = 26, blockstun = 18, hitstop = 8, pushback = 0.8f, lunge = 3f, isSuper = true };
+    public MoveData comboRush2 = new MoveData
+    {
+        name = "Spin Kick",
+        pose = AttackPose.ComboRushB,
+        startup = 6,
+        active = 4,
+        recovery = 12,
+        damage = 9,
+        level = HitLevel.Mid,
+        hitboxOffset = new Vector2(0.95f, 1.2f),
+        hitboxSize = new Vector2(0.9f, 0.5f),
+        hitstun = 26,
+        blockstun = 18,
+        hitstop = 8,
+        pushback = 0.8f,
+        lunge = 3f,
+        isSuper = true
+    };
 
-    public MoveData comboFinisher = new MoveData {
-        name = "Burst Uppercut", pose = AttackPose.ComboFinisher,
-        startup = 6, active = 6, recovery = 26, damage = 20, level = HitLevel.Mid,
-        hitboxOffset = new Vector2(0.75f, 1.4f), hitboxSize = new Vector2(1.0f, 1.1f),
-        hitstun = 40, blockstun = 20, hitstop = 16, pushback = 4f, lunge = 4f,
-        knockdown = true, launch = 9f, isSuper = true };
+    public MoveData comboFinisher = new MoveData
+    {
+        name = "Burst Uppercut",
+        pose = AttackPose.ComboFinisher,
+        startup = 6,
+        active = 6,
+        recovery = 26,
+        damage = 20,
+        level = HitLevel.Mid,
+        hitboxOffset = new Vector2(0.75f, 1.4f),
+        hitboxSize = new Vector2(1.0f, 1.1f),
+        hitstun = 40,
+        blockstun = 20,
+        hitstop = 16,
+        pushback = 4f,
+        lunge = 4f,
+        knockdown = true,
+        launch = 9f,
+        isSuper = true
+    };
 
     [Header("Bağlantılar")]
     public Fighter opponent;
@@ -94,12 +208,20 @@ public class Fighter : MonoBehaviour
     [HideInInspector] public bool controlEnabled;
     [HideInInspector] public Color mainColor = Color.white;
 
+    [Header("Bitirici ve zafer")]
+    [Tooltip("Son (K.O.) vuruşu, rengine özel sinematik bitirici harekete dönüşür.")]
+    public bool finishers = true;
+    [Tooltip("Karakter stili = palet sırası (0 RED ... 7 PINK). Bitirici ve sevinç animasyonunu seçer.")]
+    public int styleIndex;
+
     #endregion
 
     #region Durum
 
     public System.Action<Fighter, int> OnComboTaken;
     public System.Action<Fighter> OnComboReady, OnComboUnleashed;
+    /// <summary>Bitirici başladı (saldıran, kurban).</summary>
+    public System.Action<Fighter, Fighter> OnFinisherStart;
 
     public FState State { get; private set; }
     public int StateFrame { get; private set; }
@@ -114,11 +236,22 @@ public class Fighter : MonoBehaviour
     public float ComboReadyFraction => ComboReady ? readyLeft / (float)Mathf.Max(1, comboReadyFrames) : 0f;
     public bool InComboRush => State == FState.Attack && CurrentMove != null && CurrentMove.isSuper;
 
+    // Bitirici durumu (FighterRig okur)
+    public bool InFinisher => State == FState.Finisher;
+    public bool BeingFinished { get; private set; }
+    public FinisherLibrary.Finisher ActiveFinisher { get; private set; }
+    public int BeatIndex { get; private set; }
+    public int BeatFrame { get; private set; }
+    public bool FinisherApproaching { get; private set; }
+    public float WinTime { get; private set; }
+    Fighter finisherVictim;
+    bool beatHitDone;
+
     public float X => pos.x;
     public float Y => pos.y;
     public bool Airborne => pos.y > 0.0001f;
     public bool HoldingBack => controlEnabled && input != null && input.Horizontal * Facing < -0.1f;
-    public bool IsHittable => State != FState.Knockdown && State != FState.KO && State != FState.Win;
+    public bool IsHittable => State != FState.Knockdown && State != FState.KO && State != FState.Win && State != FState.Finisher && !BeingFinished;
 
     Vector2 pos, vel;
     int stunFrames;
@@ -161,11 +294,16 @@ public class Fighter : MonoBehaviour
                 break;
 
             case FState.Hitstun:
+                if (BeingFinished) break;   // bitirici bitene kadar sersem kalır
                 if (!Airborne && --stunFrames <= 0) SetState(FState.Idle);
                 break;
 
             case FState.Blockstun:
                 if (--stunFrames <= 0) SetState(FState.Idle);
+                break;
+
+            case FState.Finisher:
+                FinisherTick();
                 break;
 
             case FState.Knockdown:
@@ -319,6 +457,109 @@ public class Fighter : MonoBehaviour
 
     #endregion
 
+    #region Bitirici
+
+    void StartFinisher(Fighter victim)
+    {
+        finisherVictim = victim;
+        ActiveFinisher = FinisherLibrary.Get(styleIndex);
+        BeatIndex = 0;
+        BeatFrame = 0;
+        beatHitDone = false;
+        controlEnabled = false;
+        CurrentMove = null;
+        UpdateFacing();
+        // Rakip uzaktaysa önce yanına koş
+        FinisherApproaching = Mathf.Abs(victim.pos.x - pos.x) > 1.05f;
+        if (!FinisherApproaching) vel.x = 0f;
+        SetState(FState.Finisher);
+        FightFX.I?.OnFinisherStart(ToWorld(pos + new Vector2(0f, 1.1f)), mainColor);
+        OnFinisherStart?.Invoke(this, victim);
+    }
+
+    public FinisherLibrary.Beat CurrentBeat => ActiveFinisher.beats[Mathf.Clamp(BeatIndex, 0, ActiveFinisher.beats.Length - 1)];
+    public float BeatProgress => Mathf.Clamp01(BeatFrame / (float)Mathf.Max(1, CurrentBeat.frames));
+
+    void FinisherTick()
+    {
+        var v = finisherVictim;
+        if (ActiveFinisher == null || v == null) { SetState(FState.Idle); return; }
+
+        if (FinisherApproaching)
+        {
+            float dx = v.pos.x - pos.x;
+            if (Mathf.Abs(dx) <= 0.95f || StateFrame > 40) { FinisherApproaching = false; vel.x = 0f; }
+            else { vel.x = Mathf.Sign(dx) * 5f; return; }
+        }
+
+        var b = CurrentBeat;
+        if (BeatFrame == 0)
+        {
+            if (b.dash != 0f) vel.x = Facing * b.dash;
+            if (b.hop > 0f) vel.y = b.hop;
+            if (b.hit > 0) FightFX.I?.OnWhiff(standKick);
+        }
+        BeatFrame++;
+
+        if (b.hit > 0 && !beatHitDone && BeatFrame >= Mathf.Max(1, Mathf.RoundToInt(b.frames * b.hitAt)))
+        {
+            beatHitDone = true;
+            if (b.hit == 2) v.FinisherKO(this, b.knock, b.launch);
+            else v.FinisherHit(this, b.knock);
+        }
+
+        // Rakibin içine girme (içinden geçen adımlar hariç; arkasında yer yoksa onlar da önünde durur)
+        bool roomBehind = v.pos.x * Facing < StageHalfWidth - 0.8f;
+        if ((!b.through || !roomBehind) && !v.Airborne)
+        {
+            float gap = (v.pos.x - pos.x) * Facing;
+            if (gap < 0.6f && gap > -0.2f) { pos.x = v.pos.x - Facing * 0.6f; if (vel.x * Facing > 0f) vel.x = 0f; }
+        }
+
+        if (BeatFrame >= b.frames)
+        {
+            BeatIndex++;
+            BeatFrame = 0;
+            beatHitDone = false;
+            if (BeatIndex >= ActiveFinisher.beats.Length)
+            {
+                ActiveFinisher = null;
+                finisherVictim = null;
+                vel.x = 0f;
+                SetState(Airborne ? FState.Jump : FState.Idle);
+            }
+            else if (!Airborne && CurrentBeat.dash == 0f) vel.x = 0f;
+        }
+    }
+
+    /// <summary>Bitiricinin ara vuruşu: kurban sarsılır ama düşmez.</summary>
+    void FinisherHit(Fighter attacker, float knock)
+    {
+        float away = Mathf.Abs(pos.x - attacker.pos.x) < 0.01f ? attacker.Facing : Mathf.Sign(pos.x - attacker.pos.x);
+        SetState(FState.Hitstun);
+        HitWhileCrouching = false;
+        vel.x = away * knock;
+        ComboCount++;
+        OnComboTaken?.Invoke(this, ComboCount);
+        FightFX.I?.OnFinisherHit(ToWorld(pos + new Vector2(-away * 0.3f, 1.25f)), attacker.mainColor);
+    }
+
+    /// <summary>Bitiricinin son vuruşu: asıl K.O.</summary>
+    void FinisherKO(Fighter attacker, float knock, float launch)
+    {
+        float away = Mathf.Abs(pos.x - attacker.pos.x) < 0.01f ? attacker.Facing : Mathf.Sign(pos.x - attacker.pos.x);
+        BeingFinished = false;
+        ComboCount++;
+        OnComboTaken?.Invoke(this, ComboCount);
+        SetState(FState.KO);
+        vel = new Vector2(away * Mathf.Max(1.5f, knock), Mathf.Max(2.5f, launch));
+        Vector3 fx = ToWorld(pos + new Vector2(-away * 0.3f, 1.2f));
+        FightFX.I?.OnFinisherHit(fx, attacker.mainColor);
+        FightFX.I?.OnKO(fx);
+    }
+
+    #endregion
+
     #region Fizik
 
     void Physics(float dt)
@@ -351,7 +592,11 @@ public class Fighter : MonoBehaviour
             case FState.Attack:
                 if (CurrentMove != null && CurrentMove.IsAir) { vel.x = 0f; SetState(FState.Idle); UpdateFacing(); }
                 break;
+            case FState.Finisher:
+                vel.x = 0f;
+                break;
             case FState.Hitstun:
+                if (BeingFinished) { vel.x = 0f; break; }
                 SetState(FState.Knockdown);
                 FightFX.I?.OnBodyLand(ToWorld(pos));
                 break;
@@ -428,7 +673,7 @@ public class Fighter : MonoBehaviour
             stunFrames = m.blockstun;
             vel.x = away * m.pushback;
             PushAttackerIfCornered(attacker, m.pushback, away);
-            if (m.isSuper) Health = Mathf.Max(1, Health - Mathf.Max(1, m.damage / 4));
+            if (m.isSuper) Health = Mathf.Max(1, Health - Mathf.Max(1, Mathf.RoundToInt(m.damage * 0.25f * damageTaken)));
             FightFX.I?.OnBlock(fxPos, m);
             return false;
         }
@@ -438,7 +683,7 @@ public class Fighter : MonoBehaviour
         bool juggle = State == FState.Hitstun;
         ComboCount = juggle ? ComboCount + 1 : 1;
         float scale = m.isSuper ? 1f : Mathf.Max(0.4f, 1f - 0.12f * (ComboCount - 1));
-        Health = Mathf.Max(0, Health - Mathf.Max(1, Mathf.RoundToInt(m.damage * scale)));
+        Health = Mathf.Max(0, Health - Mathf.Max(1, Mathf.RoundToInt(m.damage * scale * damageTaken)));
         OnComboTaken?.Invoke(this, ComboCount);
 
         bool wasAir = Airborne;
@@ -451,6 +696,16 @@ public class Fighter : MonoBehaviour
 
         if (Health <= 0)
         {
+            if (attacker.finishers && attacker.State != FState.Finisher && attacker.opponent == this)
+            {
+                // Son vuruş: K.O. yerine saldıranın rengine özel bitirici başlar
+                BeingFinished = true;
+                controlEnabled = false;
+                vel = new Vector2(away * 0.8f, Airborne ? Mathf.Min(vel.y, 2f) : 0f);
+                FightFX.I?.OnHit(fxPos, m, ComboCount, attacker.mainColor);
+                attacker.StartFinisher(this);
+                return true;
+            }
             SetState(FState.KO);
             vel = new Vector2(away * 3.5f, 7.5f);
             FightFX.I?.OnKO(fxPos);
@@ -488,6 +743,10 @@ public class Fighter : MonoBehaviour
         vel = Vector2.zero;
         Health = maxHealth;
         ComboCount = 0;
+        BeingFinished = false;
+        ActiveFinisher = null;
+        finisherVictim = null;
+        FinisherApproaching = false;
         HitStreak = 0;
         streakTimer = 0;
         ComboReady = false;
@@ -502,7 +761,10 @@ public class Fighter : MonoBehaviour
     public void SetWin()
     {
         if (!Airborne && (State == FState.Idle || State == FState.Walk || State == FState.Crouch || State == FState.Guard))
+        {
             SetState(FState.Win);
+            WinTime = Time.unscaledTime;
+        }
     }
 
     public void Nudge(float dx) { pos.x = Mathf.Clamp(pos.x + dx, -StageHalfWidth, StageHalfWidth); }

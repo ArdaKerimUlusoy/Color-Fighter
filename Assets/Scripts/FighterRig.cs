@@ -16,36 +16,36 @@ public class FighterRig : MonoBehaviour
 
     const int HY = 0, TO = 1, HE = 2, LS = 3, LE = 4, RS = 5, RE = 6, LH = 7, LK = 8, RH = 9, RK = 10, HP = 11, N = 12;
 
-    static readonly float[] IDLE        = { 0.92f,   8,   -6,  -55,  -95,  -30, -115,   -28,   32,    20,   28,    0 };
-    static readonly float[] CROUCH      = { 0.53f,  22,  -15,  -60, -100,  -35, -115,   -75,  115,   -10,   85,    0 };
-    static readonly float[] GUARD       = { 0.90f,  -4,   12,  -80, -125,  -70, -130,   -22,   28,    22,   24,    0 };
-    static readonly float[] CROUCH_GUARD= { 0.53f,  10,   10,  -80, -125,  -70, -130,   -75,  115,   -10,   85,    0 };
-    static readonly float[] JUMP        = { 0.95f,  10,   -5,  -60, -100,  -40, -110,   -80,  120,   -60,  120,    0 };
-    static readonly float[] PUNCH_WIND  = { 0.90f,   2,   -6,  -55,  -95,   15, -125,   -28,   32,    20,   28,    0 };
-    static readonly float[] PUNCH_HIT   = { 0.88f,  22,  -12,  -50,  -95,  -88,   -5,   -40,   30,    30,   15,    0 };
-    static readonly float[] KICK_WIND   = { 0.95f,  -8,   -5,  -45,  -95,  -20, -110,   -15,   20,   -75,  110,    0 };
-    static readonly float[] KICK_HIT    = { 0.95f, -18,    5,  -35,  -90,   10, -100,     5,   15,   -98,    0,    0 };
-    static readonly float[] CPUNCH_WIND = { 0.53f,  15,  -15,  -60, -100,   10, -125,   -75,  115,   -10,   85,    0 };
-    static readonly float[] CPUNCH_HIT  = { 0.53f,  30,  -20,  -55, -100,  -85,   -5,   -75,  115,   -10,   85,    0 };
-    static readonly float[] SWEEP_WIND  = { 0.50f,  25,  -15,  -60, -100,  -35, -110,   -70,  120,   -40,  100,    0 };
-    static readonly float[] SWEEP_HIT   = { 0.40f,  35,  -20,  -70, -100,  -40, -110,   -60,  120,   -85,    0,    0 };
-    static readonly float[] APUNCH_WIND = { 0.95f,   5,   -5,  -60, -100,   20, -120,   -80,  120,   -60,  120,    0 };
-    static readonly float[] APUNCH_HIT  = { 0.95f,  25,  -15,  -60, -100,  -60,   -5,   -80,  120,   -60,  120,    0 };
-    static readonly float[] AKICK_WIND  = { 0.95f,   5,   -5,  -60, -100,  -40, -110,   -80,  120,   -80,  120,    0 };
-    static readonly float[] AKICK_HIT   = { 0.95f, -12,    0,  -60, -100,  -40, -110,   -80,  120,   -70,    0,    0 };
-    static readonly float[] HIT         = { 0.90f, -25,  -30,   20,  -60,   30,  -50,   -20,   25,    25,   20,    0 };
-    static readonly float[] CROUCH_HIT  = { 0.53f, -10,  -25,   20,  -60,   30,  -50,   -75,  115,   -10,   85,    0 };
-    static readonly float[] AIR_HIT     = { 0.95f, -40,  -30, -150,  -20, -160,  -10,   -40,   20,    30,   40,  -20 };
-    static readonly float[] DOWN        = { 0.14f,   0,   10,  -20,  -20,  -10,  -30,   -10,   20,    10,   30,  -90 };
-    static readonly float[] WIN         = { 0.95f,  -5,  -15,  -40, -100, -170,  -10,   -15,   10,    15,   10,    0 };
+    static readonly float[] IDLE = { 0.92f, 8, -6, -55, -95, -30, -115, -28, 32, 20, 28, 0 };
+    static readonly float[] CROUCH = { 0.53f, 22, -15, -60, -100, -35, -115, -75, 115, -10, 85, 0 };
+    static readonly float[] GUARD = { 0.90f, -4, 12, -80, -125, -70, -130, -22, 28, 22, 24, 0 };
+    static readonly float[] CROUCH_GUARD = { 0.53f, 10, 10, -80, -125, -70, -130, -75, 115, -10, 85, 0 };
+    static readonly float[] JUMP = { 0.95f, 10, -5, -60, -100, -40, -110, -80, 120, -60, 120, 0 };
+    static readonly float[] PUNCH_WIND = { 0.90f, 2, -6, -55, -95, 15, -125, -28, 32, 20, 28, 0 };
+    static readonly float[] PUNCH_HIT = { 0.88f, 22, -12, -50, -95, -88, -5, -40, 30, 30, 15, 0 };
+    static readonly float[] KICK_WIND = { 0.95f, -8, -5, -45, -95, -20, -110, -15, 20, -75, 110, 0 };
+    static readonly float[] KICK_HIT = { 0.95f, -18, 5, -35, -90, 10, -100, 5, 15, -98, 0, 0 };
+    static readonly float[] CPUNCH_WIND = { 0.53f, 15, -15, -60, -100, 10, -125, -75, 115, -10, 85, 0 };
+    static readonly float[] CPUNCH_HIT = { 0.53f, 30, -20, -55, -100, -85, -5, -75, 115, -10, 85, 0 };
+    static readonly float[] SWEEP_WIND = { 0.50f, 25, -15, -60, -100, -35, -110, -70, 120, -40, 100, 0 };
+    static readonly float[] SWEEP_HIT = { 0.40f, 35, -20, -70, -100, -40, -110, -60, 120, -85, 0, 0 };
+    static readonly float[] APUNCH_WIND = { 0.95f, 5, -5, -60, -100, 20, -120, -80, 120, -60, 120, 0 };
+    static readonly float[] APUNCH_HIT = { 0.95f, 25, -15, -60, -100, -60, -5, -80, 120, -60, 120, 0 };
+    static readonly float[] AKICK_WIND = { 0.95f, 5, -5, -60, -100, -40, -110, -80, 120, -80, 120, 0 };
+    static readonly float[] AKICK_HIT = { 0.95f, -12, 0, -60, -100, -40, -110, -80, 120, -70, 0, 0 };
+    static readonly float[] HIT = { 0.90f, -25, -30, 20, -60, 30, -50, -20, 25, 25, 20, 0 };
+    static readonly float[] CROUCH_HIT = { 0.53f, -10, -25, 20, -60, 30, -50, -75, 115, -10, 85, 0 };
+    static readonly float[] AIR_HIT = { 0.95f, -40, -30, -150, -20, -160, -10, -40, 20, 30, 40, -20 };
+    static readonly float[] DOWN = { 0.14f, 0, 10, -20, -20, -10, -30, -10, 20, 10, 30, -90 };
+    static readonly float[] WIN = { 0.95f, -5, -15, -40, -100, -170, -10, -15, 10, 15, 10, 0 };
 
     // Kombo saldırısı (Color Rush) pozları
-    static readonly float[] RUSHA_WIND  = { 0.86f,  10,   -8,   10, -120,  -40, -110,   -40,   45,    25,   30,    0 };
-    static readonly float[] RUSHA_HIT   = { 0.82f,  30,  -14,  -95,   -8,  -25, -125,   -50,   45,    40,   20,    0 };
-    static readonly float[] RUSHB_WIND  = { 0.95f, -10,   -5,  -60, -100,  -40, -110,   -80,  110,   -15,   20,    0 };
-    static readonly float[] RUSHB_HIT   = { 1.00f, -25,    8,  -20,  -60,   20,  -60,  -118,    0,    10,   10,  -10 };
-    static readonly float[] FIN_WIND    = { 0.50f,  30,  -15,  -60, -110,   30, -140,   -70,  110,   -20,   90,    0 };
-    static readonly float[] FIN_HIT     = { 1.00f, -10,   15,  -40, -100, -175,   -5,   -40,   60,    10,   20,    0 };
+    static readonly float[] RUSHA_WIND = { 0.86f, 10, -8, 10, -120, -40, -110, -40, 45, 25, 30, 0 };
+    static readonly float[] RUSHA_HIT = { 0.82f, 30, -14, -95, -8, -25, -125, -50, 45, 40, 20, 0 };
+    static readonly float[] RUSHB_WIND = { 0.95f, -10, -5, -60, -100, -40, -110, -80, 110, -15, 20, 0 };
+    static readonly float[] RUSHB_HIT = { 1.00f, -25, 8, -20, -60, 20, -60, -118, 0, 10, 10, -10 };
+    static readonly float[] FIN_WIND = { 0.50f, 30, -15, -60, -110, 30, -140, -70, 110, -20, 90, 0 };
+    static readonly float[] FIN_HIT = { 1.00f, -10, 15, -40, -100, -175, -5, -40, 60, 10, 20, 0 };
 
     #endregion
 
@@ -65,6 +65,8 @@ public class FighterRig : MonoBehaviour
     Color mainBase, pantsBase;
     bool partsReady;
     float lastGlow = -1f;
+    int lastBeat = -1;
+    float celebY, celebSpin;
 
     void Awake()
     {
@@ -216,22 +218,42 @@ public class FighterRig : MonoBehaviour
         root.localScale = new Vector3(1f, 1f, fighter.Facing);
 
         // Spin Kick: hazırlık sırasında gövde bir tur döner.
-        float spin = 0f;
+        float spin = 0f, flip = 0f;
         var mv = fighter.CurrentMove;
         if (fighter.State == FState.Attack && mv != null && mv.pose == AttackPose.ComboRushB && fighter.StateFrame <= mv.startup)
             spin = 360f * fighter.StateFrame / Mathf.Max(1f, mv.startup + 1f);
-        root.localRotation = Quaternion.Euler(0f, 90f + spin, 0f);
+
+        // Bitirici: adım boyunca dönüş / takla
+        bool finishing = fighter.State == FState.Finisher && fighter.ActiveFinisher != null;
+        if (finishing && !fighter.FinisherApproaching)
+        {
+            var b = fighter.CurrentBeat;
+            float u = fighter.BeatProgress;
+            float e = u * u * (3f - 2f * u);
+            spin += b.spin * e;
+            flip += b.flip * e;
+        }
         if (Application.isPlaying) UpdateGlow();
 
         ComputeTarget(out bool snap);
-        bool changed = fighter.State != lastState || fighter.CurrentMove != lastMove;
+        if (fighter.State == FState.Win) spin += celebSpin;
+
+        var rot = Quaternion.Euler(0f, 90f + spin, 0f) * Quaternion.Euler(flip * fighter.Facing, 0f, 0f);
+        root.localRotation = rot;
+        // Takla kalça hizasında dönsün (ayak ucunda değil)
+        Vector3 pivot = new Vector3(0f, 1f, 0f);
+        Vector3 pivotOffset = Mathf.Abs(flip) > 0.01f ? pivot - rot * pivot : Vector3.zero;
+
+        int beat = finishing ? fighter.BeatIndex : -1;
+        bool changed = fighter.State != lastState || fighter.CurrentMove != lastMove || beat != lastBeat;
         lastState = fighter.State;
         lastMove = fighter.CurrentMove;
+        lastBeat = beat;
 
         stepTimer += Time.deltaTime;
-        if (snap || changed || stepTimer >= 1f / Mathf.Max(1f, poseFps))
+        if (snap || changed || finishing || stepTimer >= 1f / Mathf.Max(1f, poseFps))
         {
-            float k = snap ? 1f : 0.6f;
+            float k = snap ? 1f : finishing ? 0.45f : 0.6f;
             for (int i = 0; i < N; i++) cur[i] = Mathf.Lerp(cur[i], tgt[i], k);
             stepTimer = 0f;
             Apply();
@@ -241,7 +263,8 @@ public class FighterRig : MonoBehaviour
         if (!MatchManager.Paused && FightFX.I != null && FightFX.I.Hitstop > 0 && fighter.StateFrame == 0 &&
             (fighter.State == FState.Hitstun || fighter.State == FState.Blockstun || fighter.State == FState.KO))
             shake.x = Random.Range(-0.05f, 0.05f);
-        root.localPosition = shake;
+        if (fighter.State == FState.Win) shake.y += celebY;
+        root.localPosition = shake + pivotOffset;
     }
 
     void ComputeTarget(out bool snap)
@@ -269,9 +292,29 @@ public class FighterRig : MonoBehaviour
                 snap = f.StateFrame <= 1;
                 Set(f.Airborne ? AIR_HIT : DOWN);
                 break;
-            case FState.Win: Set(WIN); break;
+            case FState.Win:
+                FinisherLibrary.Celebrate(f.styleIndex, Time.unscaledTime - f.WinTime, tgt, out celebY, out celebSpin);
+                break;
+            case FState.Finisher: FinisherTarget(ref snap); break;
         }
+        if (f.State != FState.Win) { celebY = 0f; celebSpin = 0f; }
         if (f.State != FState.Attack) lastPhase = -1;
+    }
+
+    void FinisherTarget(ref bool snap)
+    {
+        var f = fighter;
+        if (f.ActiveFinisher == null) { Set(IDLE); return; }
+        if (f.FinisherApproaching) { Set(IDLE); WalkCycle(); return; }
+
+        var b = f.CurrentBeat;
+        float[] prev = f.BeatIndex > 0 ? f.ActiveFinisher.beats[f.BeatIndex - 1].pose : IDLE;
+        if (b.snap)
+        {
+            Set(b.pose);
+            snap = f.BeatFrame <= 1;
+        }
+        else Blend(prev, b.pose, Mathf.Clamp01(f.BeatProgress / 0.35f));
     }
 
     void AttackTarget(MoveData m, int frame, ref bool snap)
@@ -281,15 +324,15 @@ public class FighterRig : MonoBehaviour
         float[] wind, hit;
         switch (m.pose)
         {
-            case AttackPose.StandKick:   wind = KICK_WIND;   hit = KICK_HIT;   break;
+            case AttackPose.StandKick: wind = KICK_WIND; hit = KICK_HIT; break;
             case AttackPose.CrouchPunch: wind = CPUNCH_WIND; hit = CPUNCH_HIT; break;
-            case AttackPose.CrouchKick:  wind = SWEEP_WIND;  hit = SWEEP_HIT;  break;
-            case AttackPose.AirPunch:    wind = APUNCH_WIND; hit = APUNCH_HIT; break;
-            case AttackPose.AirKick:     wind = AKICK_WIND;  hit = AKICK_HIT;  break;
-            case AttackPose.ComboRushA:  wind = RUSHA_WIND;  hit = RUSHA_HIT;  break;
-            case AttackPose.ComboRushB:  wind = RUSHB_WIND;  hit = RUSHB_HIT;  break;
-            case AttackPose.ComboFinisher: wind = FIN_WIND;  hit = FIN_HIT;    break;
-            default:                     wind = PUNCH_WIND;  hit = PUNCH_HIT;  break;
+            case AttackPose.CrouchKick: wind = SWEEP_WIND; hit = SWEEP_HIT; break;
+            case AttackPose.AirPunch: wind = APUNCH_WIND; hit = APUNCH_HIT; break;
+            case AttackPose.AirKick: wind = AKICK_WIND; hit = AKICK_HIT; break;
+            case AttackPose.ComboRushA: wind = RUSHA_WIND; hit = RUSHA_HIT; break;
+            case AttackPose.ComboRushB: wind = RUSHB_WIND; hit = RUSHB_HIT; break;
+            case AttackPose.ComboFinisher: wind = FIN_WIND; hit = FIN_HIT; break;
+            default: wind = PUNCH_WIND; hit = PUNCH_HIT; break;
         }
         float[] rest = m.IsAir ? JUMP : m.IsCrouch ? CROUCH : IDLE;
 
