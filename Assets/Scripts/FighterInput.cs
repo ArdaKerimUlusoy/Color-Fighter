@@ -155,16 +155,10 @@ public class FighterInput : MonoBehaviour
     public bool ConsumeLeft() => Consume(ref leftAt);
     public bool ConsumeRight() => Consume(ref rightAt);
 
-    /// <summary>Kombo tuşu ya da Punch+Kick birlikte basıldıysa true döner ve tüketir.</summary>
+    /// <summary>Sadece kombo tuşuna basıldıysa true döner ve tüketir.</summary>
     public bool ConsumeCombo()
     {
-        if (Consume(ref comboAt)) return true;
-        if (Buffered(punchAt) && Buffered(kickAt))
-        {
-            punchAt = kickAt = -99f;
-            return true;
-        }
-        return false;
+        return Consume(ref comboAt);
     }
 
     /// <summary>Bu oyuncunun kolu varsa kısa titreşim.</summary>

@@ -4,48 +4,75 @@ using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 
 /// <summary>
-/// Ana menü: kamera atari salonunu geniş açıdan gösterir, ekranda PLAY ve QUIT var.
-/// PLAY'e basınca kamera bizim kabinin ekranına zoom yapar ve oyun başlar. QUIT oyundan çıkar.
+/// Ana menÃ¼: kamera atari salonunu geniÅŸ aÃ§Ä±dan gÃ¶sterir, ekranda PLAY ve QUIT var.
+/// PLAY'e basÄ±nca kamera bizim kabinin ekranÄ±na zoom yapar ve oyun baÅŸlar. QUIT oyundan Ã§Ä±kar.
 /// </summary>
 public class MainMenu : MonoBehaviour
 {
-    /// <summary>Menü/zoom sürerken true. MatchManager bu sırada oyun girdisini yok sayar.</summary>
+    /// <summary>MenÃ¼/zoom sÃ¼rerken true. MatchManager bu sÄ±rada oyun girdisini yok sayar.</summary>
     public static bool Active { get; private set; }
 
     #region Ayarlar
 
-    [Tooltip("Kapalıysa oyun doğrudan kabin ekranından başlar (oyun sahnesi böyle olmalı).")]
+    [Tooltip("KapalÄ±ysa oyun doÄŸrudan kabin ekranÄ±ndan baÅŸlar (oyun sahnesi bÃ¶yle olmalÄ±).")]
     public bool showMainMenu = true;
 
-    [Tooltip("Boş değilse: PLAY'de zoom yapılırken bu sahne arka planda yüklenir ve zoom bitince geçilir " +
-             "(MainMenu sahnesi). Boşsa zoom bittikten sonra aynı sahnede oyun başlar.")]
+    [Tooltip("BoÅŸ deÄŸilse: PLAY'de zoom yapÄ±lÄ±rken bu sahne arka planda yÃ¼klenir ve zoom bitince geÃ§ilir " +
+             "(MainMenu sahnesi). BoÅŸsa zoom bittikten sonra aynÄ± sahnede oyun baÅŸlar.")]
     public string gameScene = "";
 
-    // Menü sahnesinden gelindiyse oyun sahnesi menüyü tekrar göstermez
+    // MenÃ¼ sahnesinden gelindiyse oyun sahnesi menÃ¼yÃ¼ tekrar gÃ¶stermez
     static bool cameFromMenu;
+    // Oyundan ESC ile dÃ¶nÃ¼lÃ¼yorsa menÃ¼ sahnesi kabinden geriye Ã§ekilerek aÃ§Ä±lÄ±r
+    static bool returning;
 
-    [Header("Menü kamerası")]
+    [Header("MenÃ¼ kamerasÄ±")]
     public Vector3 menuCameraPosition = new Vector3(0f, 2.05f, -5.55f);
     public Vector3 menuLookAt = new Vector3(0f, 1.25f, 0f);
     public float menuFov = 58f;
-    [Tooltip("Menüdeyken kameranın hafif süzülme miktarı.")]
+    [Tooltip("MenÃ¼deyken kameranÄ±n hafif sÃ¼zÃ¼lme miktarÄ±.")]
     public float driftAmount = 0.35f;
 
-    [Header("Geçiş")]
-    public float zoomDuration = 2.4f;
+    [Header("Fare ile bakma")]
+    [Tooltip("MenÃ¼de kamera fareyi (ya da kolun saÄŸ analoÄŸunu) takip ederek salonun iÃ§inde dÃ¶ner.")]
+    public bool mouseLook = true;
+    [Tooltip("Fare ekranÄ±n saÄŸ/sol kenarÄ±ndayken kameranÄ±n dÃ¶nme aÃ§Ä±sÄ± (derece).")]
+    public float lookYaw = 30f;
+    [Tooltip("Fare ekranÄ±n Ã¼st/alt kenarÄ±ndayken kameranÄ±n dÃ¶nme aÃ§Ä±sÄ± (derece).")]
+    public float lookPitch = 12f;
+    [Tooltip("KameranÄ±n baktÄ±ÄŸÄ± yÃ¶ne doÄŸru hafif kayma miktarÄ± (m).")]
+    public float lookShift = 0.25f;
+    [Tooltip("Takip hÄ±zÄ±. DÃ¼ÅŸÃ¼k = daha yavaÅŸ ve sÃ¼zÃ¼lerek.")]
+    public float lookSmoothing = 3.5f;
+
+    [Header("GeÃ§iÅŸ")]
+    [Tooltip("Jeton atÄ±ldÄ±ktan sonra kameranÄ±n kabin ekranÄ±na yÃ¼kselme sÃ¼resi (sn).")]
+    public float screenZoomDuration = 3f;
+    [Tooltip("ESC ile ana menÃ¼ye dÃ¶nerken kameranÄ±n kabinden geriye Ã§ekilme sÃ¼resi (sn).")]
+    public float zoomOutDuration = 1.8f;
+
+    [Header("Jeton Ã§ekimi")]
+    [Tooltip("PLAY'den sonra kameranÄ±n jeton deliÄŸine yaklaÅŸma sÃ¼resi (sn).")]
+    public float coinShotIn = 1.3f;
+    [Tooltip("Jeton atÄ±lÄ±rken kameranÄ±n jeton deliÄŸinde bekleme sÃ¼resi (sn).")]
+    public float coinShotHold = 1.1f;
+    [Tooltip("KameranÄ±n jeton deliÄŸine uzaklÄ±ÄŸÄ± (m).")]
+    public float coinShotDistance = 1.25f;
+    public float coinShotFov = 42f;
 
     #endregion
 
     #region Durum
 
-    enum State { Menu, Zooming, Loading, Done }
+    enum State { Menu, CoinShot, Zooming, Loading, Done, ZoomOut }
     State state = State.Done;
 
     Camera cam;
     CameraSway sway;
-    Vector3 gamePos, startPos;
-    Quaternion gameRot, startRot;
+    Vector3 gamePos, startPos, coinPos;
+    Quaternion gameRot, startRot, coinRot;
     float gameFov, startFov, zoomT, menuTime;
+    Vector2 look;
 
     GameObject ui;
     CanvasGroup uiGroup;
@@ -60,7 +87,7 @@ public class MainMenu : MonoBehaviour
 
     #endregion
 
-    #region Başlangıç
+    #region BaÅŸlangÄ±Ã§
 
     void Awake()
     {
@@ -68,18 +95,69 @@ public class MainMenu : MonoBehaviour
         cam = Camera.main;
         if (!showMainMenu || cam == null) { Active = false; state = State.Done; return; }
 
-        // Oyun kamerasının yerini hatırla (zoom buraya biter)
+        // Oyun kamerasÄ±nÄ±n yerini hatÄ±rla (zoom buraya biter)
         gamePos = cam.transform.position;
         gameRot = cam.transform.rotation;
         gameFov = cam.fieldOfView;
 
         sway = cam.GetComponent<CameraSway>();
-        if (sway != null) sway.enabled = false;   // menüde kamerayı biz yönetiyoruz
+        if (sway != null) sway.enabled = false;   // menÃ¼de kamerayÄ± biz yÃ¶netiyoruz
 
         Active = true;
-        state = State.Menu;
         BuildUI();
-        ApplyMenuPose(0f);
+        if (returning)
+        {
+            returning = false;
+            BeginZoomOut();
+        }
+        else
+        {
+            state = State.Menu;
+            ApplyMenuPose(0f);
+        }
+    }
+
+    public static void ReturnToMenu()
+    {
+        if (Active) return;
+        Time.timeScale = 1f;
+        const string menuScene = "MainMenu";
+        if (SceneManager.GetActiveScene().name != menuScene && Application.CanStreamedLevelBeLoaded(menuScene))
+        {
+            returning = true;
+            SceneManager.LoadScene(menuScene);
+            return;
+        }
+        var mm = Object.FindAnyObjectByType<MainMenu>();
+        if (mm != null) mm.ReopenHere();
+    }
+
+    void ReopenHere()
+    {
+        cam = Camera.main;
+        if (cam == null) return;
+        gamePos = cam.transform.position;
+        gameRot = cam.transform.rotation;
+        gameFov = cam.fieldOfView;
+        sway = cam.GetComponent<CameraSway>();
+        if (sway != null) sway.enabled = false;
+        loadOp = null;
+        Active = true;
+        if (ui == null) BuildUI();
+        BeginZoomOut();
+    }
+
+    void BeginZoomOut()
+    {
+        startPos = cam.transform.position;
+        startRot = cam.transform.rotation;
+        startFov = cam.fieldOfView;
+        zoomT = 0f;
+        menuTime = 0f;
+        look = Vector2.zero;
+        selected = 0;
+        if (uiGroup != null) uiGroup.alpha = 0f;
+        state = State.ZoomOut;
     }
 
     void OnDestroy()
@@ -89,7 +167,7 @@ public class MainMenu : MonoBehaviour
 
     #endregion
 
-    #region Döngü
+    #region DÃ¶ngÃ¼
 
     void Update()
     {
@@ -100,11 +178,45 @@ public class MainMenu : MonoBehaviour
             HandleMenuInput();
             AnimateButtons();
         }
+        else if (state == State.CoinShot)
+        {
+            zoomT += Time.unscaledDeltaTime;
+            float k = Mathf.Clamp01(zoomT / Mathf.Max(0.1f, coinShotIn));
+            float e = Smoother(k);
+            cam.transform.SetPositionAndRotation(Vector3.Lerp(startPos, coinPos, e), Quaternion.Slerp(startRot, coinRot, e));
+            cam.fieldOfView = Mathf.Lerp(startFov, coinShotFov, e);
+            if (uiGroup != null) uiGroup.alpha = Mathf.Clamp01(1f - k * 3f);
+
+            if (zoomT >= coinShotIn + coinShotHold)
+            {
+                startPos = cam.transform.position;
+                startRot = cam.transform.rotation;
+                startFov = cam.fieldOfView;
+                zoomT = 0f;
+                state = State.Zooming;
+            }
+        }
+        else if (state == State.ZoomOut)
+        {
+            zoomT += Time.unscaledDeltaTime;
+            float k = Mathf.Clamp01(zoomT / Mathf.Max(0.1f, zoomOutDuration));
+            float e = Smoother(k);
+            Vector3 target = menuCameraPosition;
+            cam.transform.SetPositionAndRotation(Vector3.Lerp(startPos, target, e), Quaternion.Slerp(startRot, Quaternion.LookRotation(menuLookAt - target), e));
+            cam.fieldOfView = Mathf.Lerp(startFov, menuFov, e);
+            if (uiGroup != null) uiGroup.alpha = Mathf.Clamp01((k - 0.55f) / 0.45f);
+            AnimateButtons();
+            if (k >= 1f)
+            {
+                menuTime = 0f;
+                state = State.Menu;
+            }
+        }
         else if (state == State.Zooming)
         {
-            zoomT += Time.unscaledDeltaTime / Mathf.Max(0.1f, zoomDuration);
+            zoomT += Time.unscaledDeltaTime / Mathf.Max(0.1f, screenZoomDuration);
             float k = Mathf.Clamp01(zoomT);
-            float e = k * k * k * (k * (k * 6f - 15f) + 10f);   // smootherstep: yavaş başla, hızlan, yumuşak dur
+            float e = k * k * k * (k * (k * 6f - 15f) + 10f);   // smootherstep: yavaÅŸ baÅŸla, hÄ±zlan, yumuÅŸak dur
 
             Vector3 pos = Vector3.Lerp(startPos, gamePos, e) + Vector3.up * Mathf.Sin(Mathf.PI * e) * 0.12f;
             cam.transform.SetPositionAndRotation(pos, Quaternion.Slerp(startRot, gameRot, e));
@@ -120,9 +232,39 @@ public class MainMenu : MonoBehaviour
     {
         Vector3 drift = new Vector3(Mathf.Sin(t * 0.17f) * driftAmount, Mathf.Sin(t * 0.23f) * driftAmount * 0.15f, Mathf.Sin(t * 0.11f) * driftAmount * 0.3f);
         Vector3 pos = menuCameraPosition + drift;
-        cam.transform.SetPositionAndRotation(pos, Quaternion.LookRotation(menuLookAt - pos));
+        Quaternion baseRot = Quaternion.LookRotation(menuLookAt - pos);
+
+        if (mouseLook && t > 0f)
+        {
+            Vector2 aim = LookInput();
+            Vector2 want = new Vector2(aim.x * lookYaw, -aim.y * lookPitch);
+            look = Vector2.Lerp(look, want, 1f - Mathf.Exp(-lookSmoothing * Time.unscaledDeltaTime));
+        }
+
+        float yawK = lookYaw > 0f ? look.x / lookYaw : 0f;
+        pos += (baseRot * Vector3.right) * (yawK * lookShift);
+        Quaternion rot = Quaternion.AngleAxis(look.x, Vector3.up) * baseRot * Quaternion.AngleAxis(look.y, Vector3.right);
+        cam.transform.SetPositionAndRotation(pos, rot);
         cam.fieldOfView = menuFov;
     }
+
+    static Vector2 LookInput()
+    {
+        var gp = Gamepad.current;
+        if (gp != null)
+        {
+            Vector2 stick = gp.rightStick.ReadValue();
+            if (stick.sqrMagnitude > 0.02f) return Vector2.ClampMagnitude(stick, 1f);
+        }
+        var mouse = Mouse.current;
+        if (mouse == null || Screen.width <= 0 || Screen.height <= 0) return Vector2.zero;
+        Vector2 mp = mouse.position.ReadValue();
+        float nx = Mathf.Clamp(mp.x / Screen.width * 2f - 1f, -1f, 1f);
+        float ny = Mathf.Clamp(mp.y / Screen.height * 2f - 1f, -1f, 1f);
+        return new Vector2(nx, ny);
+    }
+
+    static float Smoother(float k) { return k * k * k * (k * (k * 6f - 15f) + 10f); }
 
     void StartZoom()
     {
@@ -130,6 +272,18 @@ public class MainMenu : MonoBehaviour
         startRot = cam.transform.rotation;
         startFov = cam.fieldOfView;
         zoomT = 0f;
+
+        if (InsertCoin.FindSlot(transform, out var slot))
+        {
+            Vector3 fwd = slot.parent != null ? slot.parent.forward : Vector3.forward;
+            coinPos = slot.position - fwd * coinShotDistance + Vector3.up * 0.32f;
+            coinRot = Quaternion.LookRotation(slot.position + Vector3.up * 0.04f - coinPos);
+            state = State.CoinShot;
+            InsertCoin.Play(transform, coinShotIn * 0.8f);
+            return;
+        }
+
+        InsertCoin.Play(transform);
         state = State.Zooming;
     }
 
@@ -140,7 +294,7 @@ public class MainMenu : MonoBehaviour
 
         if (loadOp != null)
         {
-            // Oyun sahnesi arkada yüklendi: kamera artık tam kabinde, iki sahnede de aynı görüntü -> geç
+            // Oyun sahnesi arkada yÃ¼klendi: kamera artÄ±k tam kabinde, iki sahnede de aynÄ± gÃ¶rÃ¼ntÃ¼ -> geÃ§
             if (uiGroup != null) uiGroup.alpha = 0f;
             state = State.Loading;
             cameFromMenu = true;
@@ -148,7 +302,7 @@ public class MainMenu : MonoBehaviour
             return;
         }
 
-        if (sway != null) sway.enabled = true;   // Start'ı şimdi çalışır, doğru yeri baz alır
+        if (sway != null) sway.enabled = true;   // Start'Ä± ÅŸimdi Ã§alÄ±ÅŸÄ±r, doÄŸru yeri baz alÄ±r
         if (ui != null) Destroy(ui);
         state = State.Done;
         Active = false;
@@ -206,7 +360,7 @@ public class MainMenu : MonoBehaviour
                 loadOp.allowSceneActivation = false;   // zoom bitene kadar beklesin
             }
             else if (!string.IsNullOrEmpty(gameScene))
-                Debug.LogWarning("'" + gameScene + "' sahnesi Build Settings'te yok; oyun bu sahnede başlıyor. Color Fighter > Main Menu Sahnesini Kur ile düzelt.");
+                Debug.LogWarning("'" + gameScene + "' sahnesi Build Settings'te yok; oyun bu sahnede baÅŸlÄ±yor. Color Fighter > Main Menu Sahnesini Kur ile dÃ¼zelt.");
             StartZoom();
         }
         else
@@ -222,7 +376,7 @@ public class MainMenu : MonoBehaviour
 
     #endregion
 
-    #region Arayüz
+    #region ArayÃ¼z
 
     void BuildUI()
     {
@@ -305,7 +459,7 @@ public class MainMenu : MonoBehaviour
 }
 
 #if UNITY_EDITOR
-/// <summary>Üst menü: Color Fighter > Main Menu Sahnesini Kur</summary>
+/// <summary>Ãœst menÃ¼: Color Fighter > Main Menu Sahnesini Kur</summary>
 public static class MainMenuSceneBuilder
 {
     const string MenuScenePath = "Assets/Scenes/MainMenu.unity";
@@ -317,21 +471,21 @@ public static class MainMenuSceneBuilder
         if (Application.isPlaying) return;
         if (!UnityEditor.SceneManagement.EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo()) return;
 
-        // Oyun sahnesi: açık sahne (menü sahnesi değilse) ya da SampleScene
+        // Oyun sahnesi: aÃ§Ä±k sahne (menÃ¼ sahnesi deÄŸilse) ya da SampleScene
         string gamePath = SceneManager.GetActiveScene().path;
         if (string.IsNullOrEmpty(gamePath) || gamePath == MenuScenePath) gamePath = DefaultGamePath;
         if (UnityEditor.AssetDatabase.LoadAssetAtPath<UnityEditor.SceneAsset>(gamePath) == null)
         {
-            UnityEditor.EditorUtility.DisplayDialog("Color Fighter", "Oyun sahnesi bulunamadı: " + gamePath, "Tamam");
+            UnityEditor.EditorUtility.DisplayDialog("Color Fighter", "Oyun sahnesi bulunamadÄ±: " + gamePath, "Tamam");
             return;
         }
 
-        // 1) Oyun sahnesini hazırla: kurulu olsun, menü kapalı (doğrudan kabinden başlar)
+        // 1) Oyun sahnesini hazÄ±rla: kurulu olsun, menÃ¼ kapalÄ± (doÄŸrudan kabinden baÅŸlar)
         var game = UnityEditor.SceneManagement.EditorSceneManager.OpenScene(gamePath);
         var boot = Object.FindAnyObjectByType<ArcadeBootstrap>();
         if (boot == null) boot = new GameObject("Arcade").AddComponent<ArcadeBootstrap>();
         if (!boot.IsBuilt) boot.BuildInEditor();
-        else boot.CaptureHallLayout();   // elle düzenlenmiş salon kaydı güncel olsun
+        else boot.CaptureHallLayout();   // elle dÃ¼zenlenmiÅŸ salon kaydÄ± gÃ¼ncel olsun
         var mm = boot.GetComponent<MainMenu>();
         if (mm == null) mm = boot.gameObject.AddComponent<MainMenu>();
         mm.showMainMenu = false;
@@ -341,7 +495,7 @@ public static class MainMenuSceneBuilder
         UnityEditor.SceneManagement.EditorSceneManager.MarkSceneDirty(game);
         UnityEditor.SceneManagement.EditorSceneManager.SaveScene(game);
 
-        // 2) Menü sahnesi = oyun sahnesinin birebir kopyası (aynı salon, ışık, kabin) + menü açık
+        // 2) MenÃ¼ sahnesi = oyun sahnesinin birebir kopyasÄ± (aynÄ± salon, Ä±ÅŸÄ±k, kabin) + menÃ¼ aÃ§Ä±k
         if (UnityEditor.AssetDatabase.LoadAssetAtPath<UnityEditor.SceneAsset>(MenuScenePath) != null)
             UnityEditor.AssetDatabase.DeleteAsset(MenuScenePath);
         UnityEditor.AssetDatabase.CopyAsset(gamePath, MenuScenePath);
@@ -354,7 +508,7 @@ public static class MainMenuSceneBuilder
         UnityEditor.SceneManagement.EditorSceneManager.MarkSceneDirty(menu);
         UnityEditor.SceneManagement.EditorSceneManager.SaveScene(menu);
 
-        // 3) Build Settings: önce menü, sonra oyun
+        // 3) Build Settings: Ã¶nce menÃ¼, sonra oyun
         var list = new System.Collections.Generic.List<UnityEditor.EditorBuildSettingsScene>
         {
             new UnityEditor.EditorBuildSettingsScene(MenuScenePath, true),
@@ -365,11 +519,11 @@ public static class MainMenuSceneBuilder
         UnityEditor.EditorBuildSettings.scenes = list.ToArray();
 
         UnityEditor.EditorUtility.DisplayDialog("Color Fighter",
-            "MainMenu sahnesi kuruldu ve açıldı.\n\n" +
-            "• Play'e bu sahnede basarsan: salon + PLAY/QUIT, PLAY'de kabine zoom ve oyun sahnesine geçiş.\n" +
-            "• " + System.IO.Path.GetFileNameWithoutExtension(gamePath) + " artık doğrudan kabin ekranından başlar.\n" +
-            "• Build Settings: MainMenu (0), " + System.IO.Path.GetFileNameWithoutExtension(gamePath) + " (1).\n\n" +
-            "Salonu değiştirirsen bu menüden tekrar kurman yeterli.", "Tamam");
+            "MainMenu sahnesi kuruldu ve aÃ§Ä±ldÄ±.\n\n" +
+            "â€¢ Play'e bu sahnede basarsan: salon + PLAY/QUIT, PLAY'de kabine zoom ve oyun sahnesine geÃ§iÅŸ.\n" +
+            "â€¢ " + System.IO.Path.GetFileNameWithoutExtension(gamePath) + " artÄ±k doÄŸrudan kabin ekranÄ±ndan baÅŸlar.\n" +
+            "â€¢ Build Settings: MainMenu (0), " + System.IO.Path.GetFileNameWithoutExtension(gamePath) + " (1).\n\n" +
+            "Salonu deÄŸiÅŸtirirsen bu menÃ¼den tekrar kurman yeterli.", "Tamam");
     }
 }
 #endif

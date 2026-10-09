@@ -264,6 +264,43 @@ public class FightHUD : MonoBehaviour
 
     public int PauseOptionCount => pauseLabels.Length;
 
+    public void EnsurePauseOption(string label)
+    {
+        if (pauseLabels == null || pauseOptions == null || pauseOptions.Length == 0 || pauseGroup == null) return;
+        foreach (var l in pauseLabels) if (l == label) return;
+
+        var last = pauseOptions[pauseOptions.Length - 1];
+        var copy = Instantiate(last.gameObject, last.transform.parent);
+        copy.name = "Option" + pauseOptions.Length;
+        var rt = (RectTransform)copy.transform;
+        rt.offsetMin = last.rectTransform.offsetMin + new Vector2(0f, -20f);
+        rt.offsetMax = last.rectTransform.offsetMax + new Vector2(0f, -20f);
+        var text = copy.GetComponent<Text>();
+        text.text = label;
+
+        var root = pauseGroup.transform;
+        foreach (var n in new[] { "Frame", "Panel" })
+        {
+            var r = root.Find(n) as RectTransform;
+            if (r != null) r.offsetMin += new Vector2(0f, -22f);
+        }
+        var hint = root.Find("PauseHint") as RectTransform;
+        if (hint != null)
+        {
+            hint.offsetMin += new Vector2(0f, -22f);
+            hint.offsetMax += new Vector2(0f, -22f);
+        }
+
+        var labels = new string[pauseLabels.Length + 1];
+        pauseLabels.CopyTo(labels, 0);
+        labels[labels.Length - 1] = label;
+        pauseLabels = labels;
+        var opts = new Text[pauseOptions.Length + 1];
+        pauseOptions.CopyTo(opts, 0);
+        opts[opts.Length - 1] = text;
+        pauseOptions = opts;
+    }
+
     public void SetPauseSelection(int index)
     {
         pauseSelection = index;
@@ -471,7 +508,7 @@ public class FightHUD : MonoBehaviour
         }
 
         var rule = selRule = Txt(root, "ComboRule", top2, top2, new Vector2(-120, top - gridH - 26), new Vector2(120, top - gridH - 6), 7, TextAnchor.MiddleCenter, new Color(0.85f, 0.85f, 0.9f));
-        rule.text = "LAND 3 HITS IN A ROW = COMBO READY\nTHEN PRESS  1P: " + comboKey1 + "   2P: " + comboKey2 + "   OR PUNCH+KICK";
+        rule.text = "LAND 3 HITS IN A ROW = COMBO READY\nTHEN PRESS  1P: " + comboKey1 + "   2P: " + comboKey2;
 
         selName1 = Txt(root, "SelName1", Vector2.zero, Vector2.zero, new Vector2(8, 20), new Vector2(150, 38), 15, TextAnchor.MiddleLeft, Color.white);
         selStatus1 = Txt(root, "SelStatus1", Vector2.zero, Vector2.zero, new Vector2(8, 6), new Vector2(150, 18), 8, TextAnchor.MiddleLeft, Color.white);
@@ -747,7 +784,7 @@ public class FightHUD : MonoBehaviour
         if (selRule != null)
         {
             selRule.supportRichText = true;
-            selRule.text = "LAND 3 HITS IN A ROW = COMBO READY\nTHEN PRESS  1P: " + (pad1 ? Tr : kbKey1) + "   " + (cpu ? "" : "2P: " + (pad2 ? Tr : kbKey2) + "   ") + "OR PUNCH+KICK";
+            selRule.text = "LAND 3 HITS IN A ROW = COMBO READY\nTHEN PRESS  1P: " + (pad1 ? Tr : kbKey1) + "   " + (cpu ? "" : "2P: " + (pad2 ? Tr : kbKey2));
         }
     }
 

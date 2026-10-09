@@ -4,6 +4,24 @@ public class MatchManager : MonoBehaviour
 {
     public static bool Paused { get; private set; }
 
+    public MusicPlayer.Mood MusicMood
+    {
+        get
+        {
+            switch (phase)
+            {
+                case Phase.Select:
+                case Phase.Stage:
+                case Phase.Versus: return MusicPlayer.Mood.Select;
+                case Phase.Intro:
+                case Phase.Fight:
+                case Phase.RoundOver: return MusicPlayer.Mood.Fight;
+                case Phase.MatchOver: return demo ? MusicPlayer.Mood.Fight : MusicPlayer.Mood.Victory;
+                default: return MusicPlayer.Mood.Menu;
+            }
+        }
+    }
+
     #region Ayarlar
 
     public Fighter p1, p2;
@@ -26,11 +44,15 @@ public class MatchManager : MonoBehaviour
     [Tooltip("İki oyuncu da hazır olduktan sonra maçın başlamasına kadar bekleme (sn).")]
     public float selectConfirmDelay = 1.0f;
 
+    [Header("Demo maç (attract mode)")]
+    [Tooltip("Başlık ekranında bu kadar saniye kimse bir şeye basmazsa CPU vs CPU demo maçı başlar. 0 = kapalı.")]
+    public float demoIdleSeconds = 5f;
+
     #endregion
 
     #region Durum
 
-    enum Phase { Title, Intro, Fight, RoundOver, MatchOver, Select, Mode, Stage, Pads }
+    enum Phase { Title, Intro, Fight, RoundOver, MatchOver, Select, Mode, Stage, Pads, Versus }
     Phase phase;
     float phaseTimer, timeLeft;
     int round, wins1, wins2;
@@ -51,6 +73,12 @@ public class MatchManager : MonoBehaviour
     bool selectBack;
     bool stageLocked;
     float stageReadyTimer;
+    VsScreen vs;
+    DemoBanner banner;
+    CpuBrain brain1;
+    bool demo;
+    float idleTimer;
+    int savedCursor0, savedCursor1, savedStage;
 
     #endregion
 
@@ -73,13 +101,22 @@ public class MatchManager : MonoBehaviour
         cursor[1] = FighterPalette.ClosestIndex(p2Color);
         if (cursor[1] == cursor[0]) cursor[1] = (cursor[0] + 1) % FighterPalette.Count;
         hud.EnsureExtras(FighterPalette.All, p1.comboHitsRequired, p1.input.ComboKeyLabel, p2.input.ComboKeyLabel);
+        hud.EnsurePauseOption("MAIN MENU");
 
         brain = p2.GetComponent<CpuBrain>();
         if (brain == null) brain = p2.gameObject.AddComponent<CpuBrain>();
         brain.self = p2;
+        brain1 = p1.GetComponent<CpuBrain>();
+        if (brain1 == null) brain1 = p1.gameObject.AddComponent<CpuBrain>();
+        brain1.self = p1;
+        brain1.enabled = false;
         SetCpu(false);
         ApplySelectedColors();
         StageSwitcher.Apply(Arena, stageSel, fightCam);
+        vs = VsScreen.Create(fightCam);
+        vs.transform.SetParent(transform, false);
+        banner = DemoBanner.Create(fightCam);
+        banner.transform.SetParent(transform, false);
 
         ShowTitle();
         camPos = TargetCamPos();
@@ -101,6 +138,7 @@ public class MatchManager : MonoBehaviour
         Color c = ColorOf(attacker);
         hud.ShowFinisherName(attacker.ActiveFinisher != null ? attacker.ActiveFinisher.name : "FINISH!", c);
         hud.Flash(c, 0.55f);
+        Say("finisher");
     }
 
     void OnComboUnleashed(Fighter f)
@@ -108,6 +146,23 @@ public class MatchManager : MonoBehaviour
         Color c = ColorOf(f);
         hud.ShowCenter("COLOR RUSH!", Color.Lerp(c, Color.white, 0.3f), 0.9f);
         hud.Flash(c, 0.45f);
+        Say("rush");
+    }
+
+    void Say(string key, bool interrupt = false)
+    {
+        if (!demo) Announcer.Say(key, interrupt);
+    }
+
+    void SayAfter(string key, float delay)
+    {
+        if (!demo) Announcer.SayAfter(key, delay);
+    }
+
+    string ColorKey(int side)
+    {
+        int c = Mathf.Clamp(cursor[side], 0, FighterPalette.Count - 1);
+        return FighterPalette.All[c].name.ToLowerInvariant();
     }
 
     #endregion
@@ -119,6 +174,7 @@ public class MatchManager : MonoBehaviour
         FightFX.I?.ResetState();
         phase = Phase.Title;
         phaseTimer = 0f;
+        idleTimer = 0f;
         p1.ResetForRound(-startDistance * 0.5f);
         p2.ResetForRound(startDistance * 0.5f);
         timeLeft = roundTime;
@@ -130,6 +186,7 @@ public class MatchManager : MonoBehaviour
         rig2.SetLook(cursor[1], p2Color);
         RecolorArena(p1Color, p2Color);
         SetCpu(false);
+        if (vs != null) vs.Hide();
         hud.ShowSelect(false);
         hud.ShowMode(false);
         hud.ShowStage(false);
@@ -318,6 +375,7 @@ public class MatchManager : MonoBehaviour
     void ShowSelect()
     {
         FightFX.I?.ResetState();
+        if (phase != Phase.Stage && phase != Phase.Select) Say("choose", true);
         phase = Phase.Select;
         phaseTimer = 0f;
         bothReadyTimer = 0f;
@@ -364,6 +422,7 @@ public class MatchManager : MonoBehaviour
     /// <summary>Sahne seçimi: ◄/► ile sahneler arkada canlı değişir. Yumruk onaylar, tekme karakter seçimine döner.</summary>
     void ShowStage()
     {
+        Say("stage", true);
         phase = Phase.Stage;
         phaseTimer = 0f;
         stageLocked = false;
@@ -388,8 +447,12 @@ public class MatchManager : MonoBehaviour
             if (stageReadyTimer >= selectConfirmDelay)
             {
                 hud.ShowStage(false);
-                FightFX.I?.PlayFight();
-                StartMatch();
+                if (vs != null) ShowVersus();
+                else
+                {
+                    FightFX.I?.PlayFight();
+                    StartMatch();
+                }
             }
             return;
         }
@@ -433,8 +496,36 @@ public class MatchManager : MonoBehaviour
             stageReadyTimer = 0f;
             hud.SetStage(stageSel, StageSwitcher.Count, StageSwitcher.Names[stageSel], StageSwitcher.Descs[stageSel], true, vsCpu);
             hud.ShowCenter("GET READY!", new Color(1f, 0.85f, 0.2f), selectConfirmDelay);
+            Say("ready", true);
             FightFX.I?.PlayMenuSelect();
         }
+    }
+
+    void ShowVersus()
+    {
+        phase = Phase.Versus;
+        phaseTimer = 0f;
+        p1.ResetForRound(-startDistance * 0.5f);
+        p2.ResetForRound(startDistance * 0.5f);
+        p1.input.ClearBuffers();
+        p2.input.ClearBuffers();
+        hud.HideCenter();
+        var a = FighterPalette.All[cursor[0]];
+        var b = FighterPalette.All[cursor[1]];
+        vs.Play(a.name, b.name, a.color, b.color, "1P", vsCpu ? "CPU" : "2P", StageSwitcher.Names[stageSel], p1, p2);
+        Say("name_" + ColorKey(0), true);
+        Say("versus");
+        Say("name_" + ColorKey(1));
+    }
+
+    void UpdateVersus()
+    {
+        if (phaseTimer > 1.2f && (p1.input.ConsumePunch() | p2.input.ConsumePunch())) vs.Skip();
+        p1.input.ConsumeKick(); p2.input.ConsumeKick();
+        if (!vs.Done) return;
+        vs.Hide();
+        FightFX.I?.PlayFight();
+        StartMatch();
     }
 
     /// <summary>CPU, 1P rengini onaylayınca kısa bir "rulet" ile 1P'den farklı rastgele bir renk seçer.</summary>
@@ -653,6 +744,7 @@ public class MatchManager : MonoBehaviour
         hud.ResetBars();
         bool final = wins1 == roundsToWin - 1 && wins2 == roundsToWin - 1;
         hud.ShowCenter(final ? "FINAL ROUND" : "ROUND " + round, new Color(1f, 0.85f, 0.2f), 0f);
+        Say(final ? "final" : "round" + Mathf.Clamp(round, 1, 5), true);
         FightFX.I?.PlayBlip();
     }
 
@@ -673,6 +765,12 @@ public class MatchManager : MonoBehaviour
         switch (phase)
         {
             case Phase.Title:
+                idleTimer += dt;
+                if (demoIdleSeconds > 0f && idleTimer >= demoIdleSeconds)
+                {
+                    StartDemo();
+                    break;
+                }
                 if (MainMenu.Active)
                 {
                     // Ana menü / zoom sürerken kabindeki oyun tuşlara tepki vermez
@@ -706,10 +804,15 @@ public class MatchManager : MonoBehaviour
                 UpdatePads();
                 break;
 
+            case Phase.Versus:
+                UpdateVersus();
+                break;
+
             case Phase.Intro:
                 if (phaseTimer > 1.2f)
                 {
                     hud.ShowCenter("FIGHT!", new Color(1f, 0.3f, 0.2f), 0.7f);
+                    Say("fight", true);
                     FightFX.I?.PlayFight();
                     SetControl(true);
                     phase = Phase.Fight;
@@ -726,6 +829,12 @@ public class MatchManager : MonoBehaviour
                 break;
 
             case Phase.RoundOver:
+                if (demo)
+                {
+                    if (roundWinner != null && phaseTimer > 1.0f && roundWinner.State != FState.Win) roundWinner.SetWin();
+                    if (phaseTimer > 3.2f) EndDemo();
+                    break;
+                }
                 if (roundWinner != null && phaseTimer > 1.0f && roundWinner.State != FState.Win)
                     roundWinner.SetWin();
                 if (!resultShown && phaseTimer > 1.6f)
@@ -742,6 +851,11 @@ public class MatchManager : MonoBehaviour
                 break;
 
             case Phase.MatchOver:
+                if (demo)
+                {
+                    EndDemo();
+                    break;
+                }
                 if (phaseTimer > 1.5f && (p1.input.ConsumePunch() | p2.input.ConsumePunch()))
                     StartMatch();
                 else if (phaseTimer > 1.5f && (p1.input.ConsumeKick() | p2.input.ConsumeKick()))
@@ -769,6 +883,10 @@ public class MatchManager : MonoBehaviour
         if (ko) hud.ShowKO();
         else hud.ShowCenter("TIME", Color.white, 0f);
         if (!ko) FightFX.I?.PlayBlip();
+        if (ko) Announcer.Clear();
+        else Say("time", true);
+        if (roundWinner == null) Say("draw");
+        else if (roundWinner.Health >= roundWinner.maxHealth) SayAfter("perfect", ko ? 1.35f : 0.2f);
     }
 
     void MatchOver()
@@ -776,6 +894,7 @@ public class MatchManager : MonoBehaviour
         phase = Phase.MatchOver;
         phaseTimer = 0f;
         var w = wins1 > wins2 ? p1 : p2;
+        Say("win_" + ColorKey(w == p1 ? 0 : 1), true);
         hud.ShowCenter(w.fighterName + " WINS!\n<size=10>PUNCH: REMATCH   KICK: SELECT</size>", ColorOf(w), 0f);
     }
 
@@ -785,15 +904,88 @@ public class MatchManager : MonoBehaviour
 
     #endregion
 
+    #region Demo maç
+
+    void StartDemo()
+    {
+        demo = true;
+        idleTimer = 0f;
+        savedCursor0 = cursor[0];
+        savedCursor1 = cursor[1];
+        savedStage = stageSel;
+
+        int n = FighterPalette.Count;
+        cursor[0] = Random.Range(0, n);
+        cursor[1] = (cursor[0] + Random.Range(1, n)) % n;
+        for (int k = 0; k < 8; k++)
+        {
+            int s = Random.Range(0, StageSwitcher.Count);
+            if (StageSwitcher.Exists(Arena, s)) { stageSel = s; break; }
+        }
+
+        SetCpu(true);
+        p1.input.cpuControlled = true;
+        p1.input.ClearBuffers();
+        brain1.enabled = true;
+        ApplySelectedColors();
+        StageSwitcher.Apply(Arena, stageSel, fightCam);
+        stageSel = StageSwitcher.Current;
+        banner.Show(true);
+        StartMatch();
+    }
+
+    void EndDemo()
+    {
+        demo = false;
+        brain1.enabled = false;
+        p1.input.cpuControlled = false;
+        banner.Show(false);
+        FightFX.I?.ResetState();
+        hud.HideCenter();
+
+        cursor[0] = savedCursor0;
+        cursor[1] = savedCursor1;
+        stageSel = savedStage;
+        SetCpu(false);
+        ApplySelectedColors();
+        StageSwitcher.Apply(Arena, stageSel, fightCam);
+        stageSel = StageSwitcher.Current;
+        p1.input.ClearBuffers();
+        p2.input.ClearBuffers();
+        ShowTitle();
+    }
+
+    static bool AnyPress()
+    {
+        var kb = UnityEngine.InputSystem.Keyboard.current;
+        if (kb != null && kb.anyKey.wasPressedThisFrame) return true;
+        foreach (var gp in UnityEngine.InputSystem.Gamepad.all)
+        {
+            if (gp == null) continue;
+            if (gp.buttonSouth.wasPressedThisFrame || gp.buttonEast.wasPressedThisFrame || gp.buttonWest.wasPressedThisFrame ||
+                gp.buttonNorth.wasPressedThisFrame || gp.startButton.wasPressedThisFrame || gp.selectButton.wasPressedThisFrame)
+                return true;
+        }
+        return false;
+    }
+
+    #endregion
+
     #region Pause
 
     bool CanPause => phase == Phase.Intro || phase == Phase.Fight || phase == Phase.RoundOver;
 
     void Update()
     {
-        bool menu = Paused || MainMenu.Active || phase == Phase.Title || phase == Phase.Mode || phase == Phase.Select || phase == Phase.Stage || phase == Phase.Pads || phase == Phase.MatchOver;
+        bool menu = Paused || MainMenu.Active || phase == Phase.Title || phase == Phase.Mode || phase == Phase.Select || phase == Phase.Stage || phase == Phase.Pads || phase == Phase.Versus || phase == Phase.MatchOver;
         p1.input.menuMode = menu;
         p2.input.menuMode = menu;
+        if (demo)
+        {
+            if (!MainMenu.Active && AnyPress()) EndDemo();
+            return;
+        }
+        if (phase == Phase.Title && AnyPress()) idleTimer = 0f;
         if (MainMenu.Active) return;
         PollPads();
         if (phase == Phase.Title || phase == Phase.Select) RefreshControlHints();
@@ -805,6 +997,7 @@ public class MatchManager : MonoBehaviour
             else if (pausePressed && phase == Phase.Pads) { FightFX.I?.PlayMenuMove(); hud.ShowPads(false); ShowMode(); }
             else if (pausePressed && phase == Phase.Stage && !stageLocked) { FightFX.I?.PlayMenuMove(); ShowSelect(); }
             else if (pausePressed && phase == Phase.Mode) { FightFX.I?.PlayMenuMove(); ShowTitle(); }
+            else if (pausePressed && phase == Phase.Title && phaseTimer > 0.3f) { FightFX.I?.PlayMenuMove(); MainMenu.ReturnToMenu(); }
             else if (pausePressed && CanPause) Pause();
             return;
         }
@@ -835,6 +1028,7 @@ public class MatchManager : MonoBehaviour
             Resume();
             if (choice == 1) StartMatch();
             else if (choice == 2) ShowTitle();
+            else if (choice == 3) MainMenu.ReturnToMenu();
         }
     }
 

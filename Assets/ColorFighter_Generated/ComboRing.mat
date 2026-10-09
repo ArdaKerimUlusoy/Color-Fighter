@@ -1,6 +1,6 @@
 %YAML 1.1
 %TAG !u! tag:unity3d.com,2011:
---- !u!114 &-9181018772551917631
+--- !u!114 &-3689784057773255369
 MonoBehaviour:
   m_ObjectHideFlags: 11
   m_CorrespondingSourceObject: {fileID: 0}
@@ -20,7 +20,7 @@ Material:
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_Name: Stage_CityB_5x21_0,85
+  m_Name: ComboRing
   m_Shader: {fileID: 4800000, guid: 650dd9526735d5b46b79224bc6e94025, type: 3}
   m_Parent: {fileID: 0}
   m_ModifiedSerializedProperties: 0
@@ -39,12 +39,12 @@ Material:
     serializedVersion: 3
     m_TexEnvs:
     - _BaseMap:
-        m_Texture: {fileID: 2800000, guid: 4ed22f03464c37b42aad72adbd570b10, type: 2}
-        m_Scale: {x: 2.5, y: 5.25}
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _MainTex:
-        m_Texture: {fileID: 2800000, guid: 4ed22f03464c37b42aad72adbd570b10, type: 2}
-        m_Scale: {x: 2.5, y: 5.25}
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     m_Ints: []
     m_Floats:
@@ -65,7 +65,7 @@ Material:
     - _XRMotionVectorsPass: 1
     - _ZWrite: 1
     m_Colors:
-    - _BaseColor: {r: 0.85, g: 0.85, b: 0.85, a: 1}
-    - _Color: {r: 0.85, g: 0.85, b: 0.85, a: 1}
+    - _BaseColor: {r: 0.03, g: 0.03, b: 0.03, a: 1}
+    - _Color: {r: 0.03, g: 0.03, b: 0.03, a: 1}
   m_BuildTextureStacks: []
   m_AllowLocking: 1
