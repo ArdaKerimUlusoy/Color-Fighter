@@ -222,6 +222,12 @@ public class Fighter : MonoBehaviour
     public System.Action<Fighter> OnComboReady, OnComboUnleashed;
     /// <summary>Bitirici başladı (saldıran, kurban).</summary>
     public System.Action<Fighter, Fighter> OnFinisherStart;
+    /// <summary>Özel hareket başladı (dövüşçü, hareket adı).</summary>
+    public System.Action<Fighter, string> OnSpecial;
+    /// <summary>Fırlatma kırıldı (kıran dövüşçü).</summary>
+    public System.Action<Fighter> OnThrowBreak;
+    /// <summary>Dövüşçü sahnenin kenarına/yere sert çarptı: dünya konumu, şiddet (0..1). Sahne dekoru tepki verir.</summary>
+    public static System.Action<Vector3, float> OnStageImpact;
 
     public FState State { get; private set; }
     public int StateFrame { get; private set; }
@@ -251,7 +257,26 @@ public class Fighter : MonoBehaviour
     public float Y => pos.y;
     public bool Airborne => pos.y > 0.0001f;
     public bool HoldingBack => controlEnabled && input != null && input.Horizontal * Facing < -0.1f;
-    public bool IsHittable => State != FState.Knockdown && State != FState.KO && State != FState.Win && State != FState.Finisher && !BeingFinished;
+    public bool IsHittable => State != FState.Knockdown && State != FState.KO && State != FState.Win && State != FState.Finisher && !BeingFinished && !BeingThrown && !Vanished;
+
+    // Özel hareket ve fırlatma
+    public bool InSpecial => State == FState.Attack && CurrentMove != null && CurrentMove.isSpecial;
+    public bool Vanished { get; private set; }
+    public bool BeingThrown { get; private set; }
+    public bool Throwing => throwVictim != null;
+    public string SpecialName => SpecialMoves.NameOf(styleIndex);
+    [System.NonSerialized] MoveData special, throwGrab, throwToss, throwWhiff, projHit;
+    int specialStyle = -1;
+    Fighter throwVictim, thrower;
+    int throwTech, throwInvuln, wallCooldown, hitsDone, lastHitFrame;
+    bool throwBack;
+    const float ThrowRange = 1.15f;
+
+    // PLASMA SHOT mermisi
+    Transform proj;
+    Vector2 projPos;
+    int projDir, projFrame;
+    public bool ProjectileAlive { get; private set; }
 
     Vector2 pos, vel;
     int stunFrames;
@@ -271,7 +296,10 @@ public class Fighter : MonoBehaviour
     public void Tick(float dt)
     {
         StateFrame++;
+        EnsureMoves();
         TickComboTimers();
+        if (throwInvuln > 0) throwInvuln--;
+        if (wallCooldown > 0) wallCooldown--;
         switch (State)
         {
             case FState.Idle:
@@ -295,11 +323,18 @@ public class Fighter : MonoBehaviour
 
             case FState.Hitstun:
                 if (BeingFinished) break;   // bitirici bitene kadar sersem kalır
-                if (!Airborne && --stunFrames <= 0) SetState(FState.Idle);
+                if (BeingThrown)
+                {
+                    // Tutulduktan hemen sonra yumruk + tekme: fırlatmayı kır
+                    if (throwTech > 0 && --throwTech >= 0 && controlEnabled && input != null && input.ConsumeThrow() && thrower != null)
+                        thrower.BreakThrow();
+                    break;
+                }
+                if (!Airborne && --stunFrames <= 0) { SetState(FState.Idle); throwInvuln = 6; }
                 break;
 
             case FState.Blockstun:
-                if (--stunFrames <= 0) SetState(FState.Idle);
+                if (--stunFrames <= 0) { SetState(FState.Idle); throwInvuln = 6; }
                 break;
 
             case FState.Finisher:
@@ -307,10 +342,11 @@ public class Fighter : MonoBehaviour
                 break;
 
             case FState.Knockdown:
-                if (StateFrame >= 40) SetState(FState.Idle);
+                if (StateFrame >= 40) { SetState(FState.Idle); throwInvuln = 10; }
                 break;
         }
         Physics(dt);
+        TickProjectile(dt);
     }
 
     void Neutral()
@@ -328,6 +364,9 @@ public class Fighter : MonoBehaviour
         bool down = input.Down;
 
         if (ComboReady && input.ConsumeCombo()) { StartComboRush(); return; }
+        if (input.ConsumeThrow()) { TryThrow(); return; }
+        if (input.WaitingForThrowPair() && OpponentInThrowRange()) return;   // ikinci tuş gelirse fırlatma olsun
+        if (input.ConsumeSpecial(Facing)) { StartSpecial(); return; }
         if (input.Up) { DoJump(h); return; }
         if (input.ConsumePunch()) { StartMove(down ? crouchPunch : standPunch); return; }
         if (input.ConsumeKick()) { StartMove(down ? crouchKick : standKick); return; }
@@ -375,6 +414,8 @@ public class Fighter : MonoBehaviour
     {
         CurrentMove = m;
         moveHasHit = false;
+        hitsDone = 0;
+        lastHitFrame = 0;
         if (!m.IsAir) vel.x = 0f;
         SetState(FState.Attack);
     }
@@ -384,12 +425,18 @@ public class Fighter : MonoBehaviour
         var m = CurrentMove;
         int f = StateFrame;
 
+        if (m.isThrow) { ThrowTick(m, f); return; }
+
+        // Çok vuruşlu hareket: bir sonraki isabet için hitbox yeniden açılır
+        if (moveHasHit && m.hits > 1 && hitsDone < m.hits && f - lastHitFrame >= m.hitEvery) moveHasHit = false;
+
         if (!m.IsAir && !moveHasHit && f <= m.startup + m.active) vel.x = Facing * m.lunge;
         if (m == comboFinisher && f == m.startup + 1) vel.y = finisherHop;
         if (f == m.startup + 1) FightFX.I?.OnWhiff(m);
+        if (m.isSpecial && SpecialTick(m, f)) return;
 
         bool active = f > m.startup && f <= m.startup + m.active;
-        if (active && !moveHasHit) TryHit(m);
+        if (active && !moveHasHit && !m.isProjectile && m.hitboxSize.x > 0f) TryHit(m);
 
         if (m.isSuper)
         {
@@ -405,6 +452,14 @@ public class Fighter : MonoBehaviour
         else if (moveHasHit && ComboReady && controlEnabled && !m.IsAir && f > m.startup && input.ConsumeCombo())
         {
             StartComboRush();
+            return;
+        }
+
+        // İsabet eden jab'ı özel hareketle iptal et (↓ → + yumruk)
+        if (moveHasHit && m.cancelable && controlEnabled && f > m.startup && input.ConsumeSpecial(Facing))
+        {
+            UpdateFacing();
+            StartSpecial();
             return;
         }
 
@@ -453,6 +508,306 @@ public class Fighter : MonoBehaviour
         StartMove(comboRush1);
         FightFX.I?.OnComboUnleash(ToWorld(pos + new Vector2(0f, 1.1f)), mainColor);
         OnComboUnleashed?.Invoke(this);
+    }
+
+    #endregion
+
+    #region Özel hareket (↓ → + yumruk)
+
+    void EnsureMoves()
+    {
+        if (special == null || specialStyle != styleIndex)
+        {
+            specialStyle = styleIndex;
+            special = SpecialMoves.Create(styleIndex, mainColor);
+            projHit = SpecialMoves.ProjectileHit(special.fxColor);
+        }
+        if (throwGrab == null)
+        {
+            throwGrab = SpecialMoves.ThrowGrab();
+            throwToss = SpecialMoves.ThrowToss();
+            throwWhiff = SpecialMoves.ThrowWhiff();
+        }
+    }
+
+    void StartSpecial()
+    {
+        EnsureMoves();
+        // Ekranda zaten bir mermisi varsa ikincisi çıkmaz: normal yumruk atar
+        if (special.specialKind == (int)SpecialMoves.Kind.PlasmaShot && ProjectileAlive) { StartMove(standPunch); return; }
+        UpdateFacing();
+        StartMove(special);
+    }
+
+    /// <summary>Özel harekete özgü işler. true dönerse bu frame'in geri kalanı atlanır.</summary>
+    bool SpecialTick(MoveData m, int f)
+    {
+        var k = (SpecialMoves.Kind)m.specialKind;
+        if (f == 1)
+        {
+            if (m.hop > 0f) { vel.y = m.hop; airAttackUsed = true; }
+            FightFX.I?.OnSpecialStart(ToWorld(pos + new Vector2(0f, 1.1f)), m.fxColor);
+            OnSpecial?.Invoke(this, m.name);
+            if (k == SpecialMoves.Kind.ShadowStep)
+            {
+                Vanished = true;
+                FightFX.I?.OnVanish(ToWorld(pos + new Vector2(0f, 1f)), m.fxColor);
+            }
+        }
+
+        if (k == SpecialMoves.Kind.ShadowStep)
+        {
+            // Kayboldu: 14. frame'de rakibin arkasında belirir
+            if (f < 14) { vel = Vector2.zero; return true; }
+            if (f == 14)
+            {
+                TeleportBehind();
+                Vanished = false;
+                FightFX.I?.OnVanish(ToWorld(pos + new Vector2(0f, 1f)), m.fxColor);
+            }
+        }
+
+        if (k == SpecialMoves.Kind.PlasmaShot && f == m.startup + 1) SpawnProjectile(m.fxColor);
+
+        bool active = f > m.startup && f <= m.startup + m.active;
+        if (active && k != SpecialMoves.Kind.PlasmaShot && f % 2 == 0)
+            FightFX.I?.OnSpecialTrail(ToWorld(HitboxRect(m).center), m.fxColor);
+        return false;
+    }
+
+    /// <summary>SHADOW STEP: rakibin arkasına geç; arkada yer yoksa önüne çık.</summary>
+    void TeleportBehind()
+    {
+        if (opponent == null) return;
+        float side = Mathf.Abs(opponent.pos.x - pos.x) > 0.01f ? Mathf.Sign(opponent.pos.x - pos.x) : Facing;
+        float target = opponent.pos.x + side * 0.95f;
+        if (Mathf.Abs(target) > StageHalfWidth - 0.1f) target = opponent.pos.x - side * 0.95f;
+        pos = new Vector2(Mathf.Clamp(target, -StageHalfWidth, StageHalfWidth), 0f);
+        vel = Vector2.zero;
+        UpdateFacing();
+    }
+
+    #endregion
+
+    #region Mermi (PLASMA SHOT)
+
+    void SpawnProjectile(Color c)
+    {
+        if (transform.parent == null) return;
+        if (proj == null)
+        {
+            proj = new GameObject(fighterName + " Plasma").transform;
+            proj.SetParent(transform.parent, false);
+            ProjPart(PrimitiveType.Sphere, Vector3.zero, Vector3.one * 0.44f, c);
+            ProjPart(PrimitiveType.Sphere, Vector3.zero, Vector3.one * 0.24f, Color.Lerp(c, Color.white, 0.75f));
+            ProjPart(PrimitiveType.Cube, new Vector3(-0.32f, 0f, 0f), new Vector3(0.45f, 0.14f, 0.14f), Color.Lerp(c, Color.white, 0.2f));
+            ProjPart(PrimitiveType.Cube, new Vector3(-0.55f, 0f, 0f), new Vector3(0.3f, 0.07f, 0.07f), c);
+        }
+        projDir = Facing;
+        projPos = pos + new Vector2(Facing * 0.85f, 1.25f);
+        projFrame = 0;
+        ProjectileAlive = true;
+        proj.gameObject.SetActive(true);
+        UpdateProjectileVisual();
+    }
+
+    void ProjPart(PrimitiveType type, Vector3 p, Vector3 s, Color c)
+    {
+        var go = GameObject.CreatePrimitive(type);
+        ColorFighterUtil.Kill(go.GetComponent<Collider>());
+        go.transform.SetParent(proj, false);
+        go.transform.localPosition = p;
+        go.transform.localScale = s;
+        var r = go.GetComponent<Renderer>();
+        r.sharedMaterial = CFMaterials.Unlit(c);
+        r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+    }
+
+    void TickProjectile(float dt)
+    {
+        if (!ProjectileAlive) return;
+        projFrame++;
+        projPos.x += projDir * SpecialMoves.ProjectileSpeed * dt;
+        UpdateProjectileVisual();
+        Color c = special != null ? special.fxColor : mainColor;
+        if (projFrame % 3 == 0) FightFX.I?.OnSpecialTrail(ToWorld(projPos - new Vector2(projDir * 0.3f, 0f)), c);
+
+        var o = opponent;
+        // İki mermi çarpışırsa ikisi de söner
+        if (o != null && o.ProjectileAlive && Mathf.Abs(o.projPos.x - projPos.x) < 0.45f && Mathf.Abs(o.projPos.y - projPos.y) < 0.6f)
+        {
+            KillProjectile(true);
+            o.KillProjectile(true);
+            return;
+        }
+        if (o != null && o.IsHittable)
+        {
+            var r = new Rect(projPos - new Vector2(0.22f, 0.22f), new Vector2(0.44f, 0.44f));
+            if (r.Overlaps(o.HurtboxRect()))
+            {
+                EnsureMoves();
+                bool landed = o.ReceiveHit(this, projHit, projPos);
+                RegisterHit(landed);
+                KillProjectile(false);
+                return;
+            }
+        }
+        if (Mathf.Abs(projPos.x) > StageHalfWidth + 3.5f) KillProjectile(false);
+    }
+
+    void UpdateProjectileVisual()
+    {
+        if (proj == null) return;
+        float s = 1f + 0.12f * Mathf.Sin(projFrame * 0.9f);
+        proj.localPosition = new Vector3(projPos.x, projPos.y, 0f);
+        proj.localRotation = Quaternion.identity;
+        proj.localScale = new Vector3(projDir * s, s, s);
+    }
+
+    public void KillProjectile(bool fx)
+    {
+        if (!ProjectileAlive) return;
+        ProjectileAlive = false;
+        if (fx) FightFX.I?.OnVanish(ToWorld(projPos), special != null ? special.fxColor : mainColor);
+        if (proj != null) proj.gameObject.SetActive(false);
+    }
+
+    #endregion
+
+    #region Fırlatma (yakında yumruk + tekme)
+
+    bool OpponentInThrowRange()
+    {
+        return opponent != null && !Airborne && !opponent.Airborne && Mathf.Abs(opponent.pos.x - pos.x) <= ThrowRange;
+    }
+
+    /// <summary>Tutulabilir mi? Yerde, serbest (ya da saldırısının hazırlığında), yeni kalkmamış.</summary>
+    bool Throwable =>
+        !Airborne && throwInvuln <= 0 && !BeingThrown && !BeingFinished && !Vanished && throwVictim == null &&
+        (State == FState.Idle || State == FState.Walk || State == FState.Crouch || State == FState.Guard ||
+         (State == FState.Attack && CurrentMove != null && !CurrentMove.isThrow && !CurrentMove.isSpecial && !CurrentMove.isSuper && StateFrame <= CurrentMove.startup));
+
+    void TryThrow()
+    {
+        EnsureMoves();
+        UpdateFacing();
+        if (OpponentInThrowRange() && opponent.Throwable)
+        {
+            // Geri basılıyken rakip arkaya fırlatılır
+            throwBack = input != null && input.Horizontal * Facing < -0.1f;
+            throwVictim = opponent;
+            StartMove(throwGrab);
+            moveHasHit = true;
+            vel = Vector2.zero;
+            opponent.GetGrabbed(this);
+            FightFX.I?.OnThrowGrab(ToWorld(pos + new Vector2(Facing * 0.45f, 1.2f)));
+        }
+        else
+        {
+            StartMove(throwWhiff);
+            FightFX.I?.OnWhiff(throwWhiff);
+        }
+    }
+
+    void GetGrabbed(Fighter by)
+    {
+        thrower = by;
+        BeingThrown = true;
+        throwTech = 12;   // ~0.2 sn: bu sürede yumruk + tekme fırlatmayı kırar
+        CurrentMove = null;
+        HitStreak = 0;
+        streakTimer = 0;
+        HitWhileCrouching = false;
+        Vanished = false;
+        vel = Vector2.zero;
+        SetState(FState.Hitstun);
+        stunFrames = 999;
+        input?.Rumble(0.3f, 0.3f, 0.1f);
+    }
+
+    void ThrowTick(MoveData m, int f)
+    {
+        vel.x = 0f;
+        if (m == throwGrab)
+        {
+            var v = throwVictim;
+            if (v == null) { SetState(FState.Idle); return; }
+            v.pos = new Vector2(Mathf.Clamp(pos.x + Facing * 0.62f, -StageHalfWidth, StageHalfWidth), 0f);
+            v.vel = Vector2.zero;
+            if (f >= m.startup + m.active) ReleaseThrow();
+            return;
+        }
+        if (f >= m.Total) SetState(FState.Idle);
+    }
+
+    void ReleaseThrow()
+    {
+        var v = throwVictim;
+        throwVictim = null;
+        if (v == null) return;
+        int dir = throwBack ? -Facing : Facing;
+        if (throwBack) v.pos.x = Mathf.Clamp(pos.x - Facing * 0.62f, -StageHalfWidth, StageHalfWidth);
+        StartMove(throwToss);
+        moveHasHit = true;
+        v.Thrown(this, dir);
+        RegisterHit(true);
+    }
+
+    void Thrown(Fighter by, int dir)
+    {
+        BeingThrown = false;
+        thrower = null;
+        int dmg = Mathf.Max(1, Mathf.RoundToInt(by.throwGrab.damage * damageTaken));
+        Health = Mathf.Max(0, Health - dmg);
+        ComboCount = 1;
+        OnComboTaken?.Invoke(this, ComboCount);
+        Vector3 fx = ToWorld(pos + new Vector2(0f, 1.1f));
+        if (Health <= 0)
+        {
+            SetState(FState.KO);
+            input?.Rumble(0.9f, 1f, 0.6f);
+            vel = new Vector2(dir * 3.5f, 7.5f);
+            FightFX.I?.OnKO(fx);
+            return;
+        }
+        input?.Rumble(0.6f, 0.9f, 0.2f);
+        SetState(FState.Hitstun);
+        stunFrames = 30;
+        vel = new Vector2(dir * 4.5f, 6.5f);
+        FightFX.I?.OnHit(fx, by.throwGrab, 1);
+    }
+
+    /// <summary>Kurban zamanında yumruk + tekmeye bastı: iki taraf da geri itilir.</summary>
+    void BreakThrow()
+    {
+        var v = throwVictim;
+        if (v == null) return;
+        throwVictim = null;
+        v.BeingThrown = false;
+        v.thrower = null;
+        CurrentMove = null;
+        SetState(FState.Blockstun);
+        stunFrames = 14;
+        CrouchBlocking = false;
+        vel = new Vector2(-Facing * 4f, 0f);
+        v.SetState(FState.Blockstun);
+        v.stunFrames = 14;
+        v.CrouchBlocking = false;
+        v.vel = new Vector2(Facing * 4f, 0f);
+        FightFX.I?.OnThrowBreak(ToWorld((pos + v.pos) * 0.5f + new Vector2(0f, 1.2f)));
+        v.input?.Rumble(0.4f, 0.4f, 0.12f);
+        v.OnThrowBreak?.Invoke(v);
+    }
+
+    /// <summary>Tutan dövüşçü vurulursa kurbanı bırakır.</summary>
+    void DropThrow()
+    {
+        var v = throwVictim;
+        throwVictim = null;
+        if (v == null) return;
+        v.BeingThrown = false;
+        v.thrower = null;
+        v.SetState(FState.Idle);
     }
 
     #endregion
@@ -580,6 +935,21 @@ public class Fighter : MonoBehaviour
         if (!Airborne && State != FState.Walk)
             vel.x = Mathf.MoveTowards(vel.x, 0f, groundFriction * dt);
 
+        // Sahne kenarına savrulma: dekor sallanır, havadaysa hafif duvardan sekme
+        if (Mathf.Abs(pos.x) > StageHalfWidth)
+        {
+            bool flung = State == FState.Hitstun || State == FState.KO;
+            float speed = Mathf.Abs(vel.x);
+            if (flung && speed > 2.2f && wallCooldown <= 0 && !BeingThrown)
+            {
+                wallCooldown = 30;
+                float side = Mathf.Sign(pos.x);
+                float strength = Mathf.Clamp01(speed / 7f);
+                OnStageImpact?.Invoke(ToWorld(new Vector2(side * StageHalfWidth, pos.y + 0.9f)), 0.35f + 0.65f * strength);
+                FightFX.I?.OnWallHit(ToWorld(new Vector2(side * (StageHalfWidth + 0.2f), pos.y + 1f)), strength);
+                if (Airborne && State == FState.Hitstun) vel.x = -side * speed * 0.3f;
+            }
+        }
         pos.x = Mathf.Clamp(pos.x, -StageHalfWidth, StageHalfWidth);
     }
 
@@ -592,6 +962,13 @@ public class Fighter : MonoBehaviour
                 break;
             case FState.Attack:
                 if (CurrentMove != null && CurrentMove.IsAir) { vel.x = 0f; SetState(FState.Idle); UpdateFacing(); }
+                else if (CurrentMove != null && CurrentMove.isSpecial && CurrentMove.specialKind == (int)SpecialMoves.Kind.MeteorSlam)
+                {
+                    vel.x = 0f;
+                    FightFX.I?.OnSlam(ToWorld(pos), CurrentMove.fxColor);
+                    OnStageImpact?.Invoke(ToWorld(pos), 0.8f);
+                }
+                else if (CurrentMove != null && CurrentMove.hop > 0f) vel.x = 0f;
                 break;
             case FState.Finisher:
                 vel.x = 0f;
@@ -600,9 +977,11 @@ public class Fighter : MonoBehaviour
                 if (BeingFinished) { vel.x = 0f; break; }
                 SetState(FState.Knockdown);
                 FightFX.I?.OnBodyLand(ToWorld(pos));
+                OnStageImpact?.Invoke(ToWorld(pos), 0.4f);
                 break;
             case FState.KO:
                 FightFX.I?.OnBodyLand(ToWorld(pos));
+                OnStageImpact?.Invoke(ToWorld(pos), 0.7f);
                 break;
         }
     }
@@ -626,6 +1005,8 @@ public class Fighter : MonoBehaviour
         if (!hit.Overlaps(hurt)) return;
 
         moveHasHit = true;
+        hitsDone++;
+        lastHitFrame = StateFrame;
         Vector2 contact = new Vector2(
             (Mathf.Max(hit.xMin, hurt.xMin) + Mathf.Min(hit.xMax, hurt.xMax)) * 0.5f,
             (Mathf.Max(hit.yMin, hurt.yMin) + Mathf.Min(hit.yMax, hurt.yMax)) * 0.5f);
@@ -655,7 +1036,10 @@ public class Fighter : MonoBehaviour
     public bool ReceiveHit(Fighter attacker, MoveData m, Vector2 contact)
     {
         float away = Mathf.Abs(pos.x - attacker.pos.x) < 0.01f ? attacker.Facing : Mathf.Sign(pos.x - attacker.pos.x);
+        if (m.isProjectile) away = Mathf.Sign(pos.x - contact.x) != 0f ? Mathf.Sign(pos.x - contact.x) : attacker.Facing;
         Vector3 fxPos = ToWorld(contact);
+        if (throwVictim != null) DropThrow();   // tutarken vurulursa bırakır
+        Vanished = false;
 
         bool canBlock = controlEnabled && !Airborne &&
             (State == FState.Idle || State == FState.Walk || State == FState.Crouch ||
@@ -673,8 +1057,8 @@ public class Fighter : MonoBehaviour
             SetState(FState.Blockstun);
             stunFrames = m.blockstun;
             vel.x = away * m.pushback;
-            PushAttackerIfCornered(attacker, m.pushback, away);
-            if (m.isSuper) Health = Mathf.Max(1, Health - Mathf.Max(1, Mathf.RoundToInt(m.damage * 0.25f * damageTaken)));
+            if (!m.isProjectile) PushAttackerIfCornered(attacker, m.pushback, away);
+            if (m.isSuper || m.isSpecial) Health = Mathf.Max(1, Health - Mathf.Max(1, Mathf.RoundToInt(m.damage * 0.25f * damageTaken)));
             FightFX.I?.OnBlock(fxPos, m);
             return false;
         }
@@ -720,12 +1104,13 @@ public class Fighter : MonoBehaviour
             vel.y = wasAir ? Mathf.Max(1.5f, 5.5f - ComboCount * 0.8f) : Mathf.Max(m.launch, 3f);
             vel.x = away * Mathf.Max(m.pushback, 2f);
         }
-        else
+        else if (!m.isProjectile)
         {
             PushAttackerIfCornered(attacker, m.pushback, away);
         }
 
         if (m.isSuper) FightFX.I?.OnHit(fxPos, m, ComboCount, attacker.mainColor);
+        else if (m.isSpecial) FightFX.I?.OnHit(fxPos, m, ComboCount, m.fxColor);
         else FightFX.I?.OnHit(fxPos, m, ComboCount);
         return true;
     }
@@ -757,6 +1142,12 @@ public class Fighter : MonoBehaviour
         CurrentMove = null;
         controlEnabled = false;
         Facing = x < 0f ? 1 : -1;
+        Vanished = false;
+        BeingThrown = false;
+        throwVictim = null;
+        thrower = null;
+        throwTech = throwInvuln = wallCooldown = 0;
+        KillProjectile(false);
         SetState(FState.Idle);
         SyncTransform();
     }

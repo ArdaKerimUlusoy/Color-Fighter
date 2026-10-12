@@ -26,6 +26,8 @@ public class FighterInput : MonoBehaviour
     [Tooltip("Menülerde kol PlayStation düzeninde çalışır: X onay, O geri. MatchManager ayarlar.")]
     [System.NonSerialized] public bool menuMode;
     [HideInInspector] public bool cpuLeft, cpuRight, cpuUp, cpuDown, cpuPunch, cpuKick, cpuCombo;
+    /// <summary>CPU için: özel hareket isteği (↓ → + yumruk yerine doğrudan).</summary>
+    [HideInInspector] public bool cpuSpecial;
 
     [Header("Input buffer (saniye)")]
     public float bufferTime = 0.15f;
@@ -44,6 +46,15 @@ public class FighterInput : MonoBehaviour
     float punchAt = -99f, kickAt = -99f, upAt = -99f, downAt = -99f, pauseAt = -99f;
     float leftAt = -99f, rightAt = -99f, comboAt = -99f;
     bool prevUp, prevDown, prevPunch, prevKick, prevPause, prevLeft, prevRight, prevCombo;
+    float specialAt = -99f;
+    bool prevSpecial;
+
+    // Yön geçmişi: özel hareket (↓ → + yumruk) algılamak için. Her yön değişimi zamanıyla saklanır.
+    struct DirSample { public float t; public int x; public bool d; }
+    const int HistSize = 16;
+    readonly DirSample[] hist = new DirSample[HistSize];
+    int histHead, histCount, lastDirX = 99;
+    bool lastDirD;
 
     void Awake()
     {
@@ -129,6 +140,20 @@ public class FighterInput : MonoBehaviour
         if (c && !prevCombo) comboAt = now;
         prevUp = u; prevDown = d; prevPunch = p; prevKick = k; prevPause = ps;
         prevLeft = l; prevRight = r; prevCombo = c;
+
+        bool sp = cpuControlled && cpuSpecial;
+        if (sp && !prevSpecial) specialAt = now;
+        prevSpecial = sp;
+
+        int dx = l ? -1 : r ? 1 : 0;
+        if (dx != lastDirX || d != lastDirD)
+        {
+            hist[histHead] = new DirSample { t = now, x = dx, d = d };
+            histHead = (histHead + 1) % HistSize;
+            histCount = Mathf.Min(histCount + 1, HistSize);
+            lastDirX = dx;
+            lastDirD = d;
+        }
     }
 
     #endregion
@@ -155,6 +180,75 @@ public class FighterInput : MonoBehaviour
     public bool ConsumeLeft() => Consume(ref leftAt);
     public bool ConsumeRight() => Consume(ref rightAt);
 
+    #region Özel hareket ve fırlatma girişi
+
+    /// <summary>Yumruk tuşu tampon süresi içinde basıldı mı (tüketmeden).</summary>
+    public bool PunchBuffered => Buffered(punchAt);
+
+    /// <summary>
+    /// ↓ sonra → (yüzünün döndüğü yön) girildi mi? Çapraz (↘) şart değil.
+    /// İleri yön son 0.35 sn içinde verilmiş (ya da hâlâ basılı) olmalı, aşağı ondan en fazla 0.45 sn önce.
+    /// </summary>
+    public bool MotionDownForward(int facing)
+    {
+        float now = Time.unscaledTime;
+        for (int k = 0; k < histCount; k++)
+        {
+            var s = Hist(k);
+            float endT = k == 0 ? now : Hist(k - 1).t;   // bu yönün bırakıldığı an
+            if (now - endT > 0.3f) return false;          // ileri çok önce bırakılmış
+            if (s.x != facing || s.d) continue;           // ileri (aşağısız) değil
+            // Bu ileri basışından hemen önce aşağı var mı?
+            for (int j = k + 1; j < histCount; j++)
+            {
+                var e = Hist(j);
+                float eEnd = Hist(j - 1).t;                // aşağının bırakıldığı an
+                if (s.t - eEnd > 0.45f) break;
+                if (e.d) return true;
+            }
+            return false;
+        }
+        return false;
+    }
+
+    /// <summary>k = 0 en yeni yön kaydı.</summary>
+    DirSample Hist(int k) => hist[(histHead - 1 - k + 2 * HistSize) % HistSize];
+
+    /// <summary>Özel hareket: ↓ → + yumruk (ya da CPU isteği). Doğruysa yumruğu tüketir.</summary>
+    public bool ConsumeSpecial(int facing)
+    {
+        if (Consume(ref specialAt)) { punchAt = -99f; return true; }
+        if (Buffered(punchAt) && MotionDownForward(facing))
+        {
+            punchAt = -99f;
+            histCount = 0;   // aynı hareket iki kez tetiklenmesin
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>Fırlatma: yumruk + tekme birlikte (aralarında en fazla ~4 frame). Doğruysa ikisini de tüketir.</summary>
+    public bool ConsumeThrow()
+    {
+        if (Buffered(punchAt) && Buffered(kickAt) && Mathf.Abs(punchAt - kickAt) <= 0.07f)
+        {
+            punchAt = kickAt = -99f;
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>Yumruk ya da tekmeden yalnız biri çok yeni basıldı: ikincisi gelirse fırlatma olabilir, kısa süre bekle.</summary>
+    public bool WaitingForThrowPair(float wait = 0.05f)
+    {
+        bool p = Buffered(punchAt), k = Buffered(kickAt);
+        if (p == k) return false;
+        float t = p ? punchAt : kickAt;
+        return Time.unscaledTime - t < wait;
+    }
+
+    #endregion
+
     /// <summary>Sadece kombo tuşuna basıldıysa true döner ve tüketir.</summary>
     public bool ConsumeCombo()
     {
@@ -174,7 +268,7 @@ public class FighterInput : MonoBehaviour
     public void ClearBuffers()
     {
         punchAt = kickAt = upAt = downAt = pauseAt = -99f;
-        leftAt = rightAt = comboAt = -99f;
+        leftAt = rightAt = comboAt = specialAt = -99f;
     }
 
     /// <summary>Kombo tuşunun ekranda gösterilecek adı (klavye düzenine göre, ör. TR'de "Ş").</summary>

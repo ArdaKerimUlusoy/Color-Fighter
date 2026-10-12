@@ -77,13 +77,13 @@ public class FighterTrails : MonoBehaviour
         else ghostTimer = 0f;
 
         DrawGhosts(mat);
-        if (shadow) DrawShadow(mat);
+        if (shadow && !fighter.Vanished) DrawShadow(mat);
     }
 
     bool WantsGhost()
     {
         var f = fighter;
-        return f.InComboRush || f.InFinisher;
+        return f.InComboRush || f.InFinisher || f.InSpecial;
     }
 
     void Snapshot()

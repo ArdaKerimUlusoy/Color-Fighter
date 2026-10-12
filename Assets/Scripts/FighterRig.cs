@@ -417,6 +417,19 @@ public class FighterRig : MonoBehaviour
         if (fighter.State == FState.Attack && mv != null && mv.pose == AttackPose.ComboRushB && fighter.StateFrame <= mv.startup)
             spin = 360f * fighter.StateFrame / Mathf.Max(1f, mv.startup + 1f);
 
+        // Özel hareket: dönen tekme / takla (hazırlık + aktif süresince)
+        if (fighter.State == FState.Attack && mv != null && (mv.spin != 0f || mv.flip != 0f))
+        {
+            float u = Mathf.Clamp01(fighter.StateFrame / Mathf.Max(1f, mv.startup + mv.active));
+            float e = u * u * (3f - 2f * u);
+            spin += mv.spin * e;
+            flip += mv.flip * e;
+        }
+
+        // SHADOW STEP: kaybolma
+        bool hide = fighter.Vanished;
+        if (root.gameObject.activeSelf == hide) root.gameObject.SetActive(!hide);
+
         // Bitirici: adım boyunca dönüş / takla
         bool finishing = fighter.State == FState.Finisher && fighter.ActiveFinisher != null;
         if (finishing && !fighter.FinisherApproaching)
@@ -516,7 +529,8 @@ public class FighterRig : MonoBehaviour
         if (m == null) { Set(IDLE); return; }
 
         float[] wind, hit;
-        switch (m.pose)
+        if (m.windPose != null && m.hitPose != null) { wind = m.windPose; hit = m.hitPose; }
+        else switch (m.pose)
         {
             case AttackPose.StandKick: wind = KICK_WIND; hit = KICK_HIT; break;
             case AttackPose.CrouchPunch: wind = CPUNCH_WIND; hit = CPUNCH_HIT; break;

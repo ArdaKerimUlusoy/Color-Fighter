@@ -12,7 +12,8 @@ public class MatchManager : MonoBehaviour
             {
                 case Phase.Select:
                 case Phase.Stage:
-                case Phase.Versus: return MusicPlayer.Mood.Select;
+                case Phase.Versus:
+                case Phase.HowTo: return MusicPlayer.Mood.Select;
                 case Phase.Intro:
                 case Phase.Fight:
                 case Phase.RoundOver: return MusicPlayer.Mood.Fight;
@@ -52,7 +53,9 @@ public class MatchManager : MonoBehaviour
 
     #region Durum
 
-    enum Phase { Title, Intro, Fight, RoundOver, MatchOver, Select, Mode, Stage, Pads, Versus }
+    enum Phase { Title, Intro, Fight, RoundOver, MatchOver, Select, Mode, Stage, Pads, Versus, HowTo }
+    /// <summary>"HOW TO PLAY" kartı oyun açıldığında ilk maçtan önce bir kez gösterilir.</summary>
+    static bool howToShown;
     Phase phase;
     float phaseTimer, timeLeft;
     int round, wins1, wins2;
@@ -93,6 +96,10 @@ public class MatchManager : MonoBehaviour
         p1.OnFinisherStart += OnFinisherStart;
         p2.OnFinisherStart += OnFinisherStart;
         p2.OnComboUnleashed += OnComboUnleashed;
+        p1.OnSpecial += OnSpecialMove;
+        p2.OnSpecial += OnSpecialMove;
+        p1.OnThrowBreak += OnThrowBreak;
+        p2.OnThrowBreak += OnThrowBreak;
         if (FightFX.I != null) FightFX.I.OnFlash += hud.Flash;
 
         rig1 = p1.GetComponent<FighterRig>();
@@ -139,6 +146,44 @@ public class MatchManager : MonoBehaviour
         hud.ShowFinisherName(attacker.ActiveFinisher != null ? attacker.ActiveFinisher.name : "FINISH!", c);
         hud.Flash(c, 0.55f);
         Say("finisher");
+    }
+
+    void OnSpecialMove(Fighter f, string moveName)
+    {
+        if (phase != Phase.Fight && phase != Phase.RoundOver) return;
+        hud.ShowSpecialName(f == p1 ? 0 : 1, moveName, ColorOf(f));
+    }
+
+    void OnThrowBreak(Fighter f)
+    {
+        hud.ShowCenter("BREAK!", new Color(0.4f, 0.9f, 1f), 0.6f);
+    }
+
+    /// <summary>Fırlatma tuşları: kolu varsa kol, yoksa klavye.</summary>
+    string ThrowKeys(FighterInput input)
+    {
+        if (input.Pad != null) return "\u25A1 + X";
+        return input.punch + " + " + input.kick;
+    }
+
+    void ShowHowTo()
+    {
+        howToShown = true;
+        phase = Phase.HowTo;
+        phaseTimer = 0f;
+        p1.input.ClearBuffers();
+        p2.input.ClearBuffers();
+        hud.ShowHowTo(true, ThrowKeys(p1.input), ThrowKeys(p2.input), p1.styleIndex, p2.styleIndex, vsCpu);
+    }
+
+    void UpdateHowTo()
+    {
+        bool go = phaseTimer > 1f && (p1.input.ConsumePunch() | p2.input.ConsumePunch());
+        p1.input.ConsumeKick(); p2.input.ConsumeKick();
+        if (!go && phaseTimer < 15f) return;
+        hud.ShowHowTo(false);
+        FightFX.I?.PlayFight();
+        StartMatch();
     }
 
     void OnComboUnleashed(Fighter f)
@@ -190,6 +235,7 @@ public class MatchManager : MonoBehaviour
         hud.ShowSelect(false);
         hud.ShowMode(false);
         hud.ShowStage(false);
+        hud.ShowHowTo(false);
         hud.ShowTitle(true);
     }
 
@@ -524,6 +570,7 @@ public class MatchManager : MonoBehaviour
         p1.input.ConsumeKick(); p2.input.ConsumeKick();
         if (!vs.Done) return;
         vs.Hide();
+        if (!howToShown && !demo) { ShowHowTo(); return; }   // ilk maçtan önce tuş anlatımı
         FightFX.I?.PlayFight();
         StartMatch();
     }
@@ -742,6 +789,7 @@ public class MatchManager : MonoBehaviour
         resultShown = false;
         roundWinner = null;
         hud.ResetBars();
+        StageLife.ResetAll();
         bool final = wins1 == roundsToWin - 1 && wins2 == roundsToWin - 1;
         hud.ShowCenter(final ? "FINAL ROUND" : "ROUND " + round, new Color(1f, 0.85f, 0.2f), 0f);
         Say(final ? "final" : "round" + Mathf.Clamp(round, 1, 5), true);
@@ -806,6 +854,10 @@ public class MatchManager : MonoBehaviour
 
             case Phase.Versus:
                 UpdateVersus();
+                break;
+
+            case Phase.HowTo:
+                UpdateHowTo();
                 break;
 
             case Phase.Intro:
@@ -977,7 +1029,7 @@ public class MatchManager : MonoBehaviour
 
     void Update()
     {
-        bool menu = Paused || MainMenu.Active || phase == Phase.Title || phase == Phase.Mode || phase == Phase.Select || phase == Phase.Stage || phase == Phase.Pads || phase == Phase.Versus || phase == Phase.MatchOver;
+        bool menu = Paused || MainMenu.Active || phase == Phase.Title || phase == Phase.Mode || phase == Phase.Select || phase == Phase.Stage || phase == Phase.Pads || phase == Phase.Versus || phase == Phase.HowTo || phase == Phase.MatchOver;
         p1.input.menuMode = menu;
         p2.input.menuMode = menu;
         if (demo)

@@ -85,6 +85,7 @@ public class StageLife : MonoBehaviour
             case Kind.Dojo: SetupDojo(); break;
             case Kind.Market: SetupMarket(); break;
         }
+        SetupImpacts();
     }
 
     float R(float a, float b) { return a + (float)rng.NextDouble() * (b - a); }
@@ -229,6 +230,7 @@ public class StageLife : MonoBehaviour
             case Kind.Dojo: UpdateDojo(t, dt); break;
             case Kind.Market: UpdateMarket(dt); break;
         }
+        UpdateImpacts(t, dt);
     }
 
     void UpdateBoxing(float t)
@@ -340,4 +342,257 @@ public class StageLife : MonoBehaviour
     }
 
     #endregion
+    #region Darbe tepkisi (dövüşçü kenara / yere çarpınca)
+
+    static readonly List<StageLife> all = new List<StageLife>();
+
+    [Header("Darbe tepkisi")]
+    [Tooltip("Dövüşçü kenara savrulunca dekorun sarsılma gücü.")]
+    public float impactAmount = 1f;
+
+    class Shaker
+    {
+        public Transform t;
+        public Vector3 basePos;
+        public Quaternion baseRot;
+        public float amp, phase;
+        public Vector3 axis;
+        public bool rotate;
+    }
+
+    class Loose
+    {
+        public Transform t;
+        public Vector3 basePos, pos, vel, spin;
+        public Quaternion baseRot;
+        public bool flying, fallen;
+    }
+
+    class Bit
+    {
+        public Transform t;
+        public Vector3 pos, vel;
+        public float age, life;
+    }
+
+    readonly List<Shaker> shakers = new List<Shaker>();
+    readonly List<Loose> loose = new List<Loose>();
+    readonly List<Bit> bits = new List<Bit>();
+    float[] lanternKick = new float[0];
+    bool impactReady;
+
+    void OnEnable()
+    {
+        if (!all.Contains(this)) all.Add(this);
+        Fighter.OnStageImpact += Impact;
+    }
+
+    void OnDisable()
+    {
+        Fighter.OnStageImpact -= Impact;
+        all.Remove(this);
+    }
+
+    /// <summary>Raunt başında: düşen kaseler yerine döner, sallanan her şey durur.</summary>
+    public static void ResetAll()
+    {
+        foreach (var s in all) if (s != null) s.ResetImpacts();
+    }
+
+    void ResetImpacts()
+    {
+        foreach (var l in loose)
+        {
+            if (l.t == null) continue;
+            l.flying = l.fallen = false;
+            l.t.localPosition = l.basePos;
+            l.t.localRotation = l.baseRot;
+        }
+        foreach (var s in shakers)
+        {
+            if (s.t == null) continue;
+            s.amp = 0f;
+            s.t.localPosition = s.basePos;
+            s.t.localRotation = s.baseRot;
+        }
+        for (int i = 0; i < lanternKick.Length; i++) lanternKick[i] = 0f;
+        foreach (var b in bits) if (b.t != null) Destroy(b.t.gameObject);
+        bits.Clear();
+    }
+
+    /// <summary>Tepki verecek parçaları isimlerinden bulur (Start'ta, sahneye özel kurulumdan sonra).</summary>
+    void SetupImpacts()
+    {
+        foreach (var t in GetComponentsInChildren<Transform>(true))
+        {
+            string n = t.name;
+            switch (kind)
+            {
+                case Kind.Boxing:
+                    if (n == "RopeL" || n == "RopeR") AddShaker(t, Vector3.right, false);
+                    else if (n == "RopeBack") AddShaker(t, Vector3.forward, false);
+                    else if (n == "CornerP1" || n == "CornerP2" || n == "Post") AddShaker(t, Vector3.right, false);
+                    break;
+                case Kind.Rooftop:
+                    if (n == "BannerP1" || n == "BannerP2" || n == "FlagStripe") AddShaker(t, Vector3.up, true);
+                    else if (n == "ACUnit" || n == "ACFan" || n == "ACVent" || n == "Antenna" || n == "AntennaBar" || n == "AntennaLight") AddShaker(t, Vector3.right, false);
+                    break;
+                case Kind.Dojo:
+                    if (n == "Staff") AddShaker(t, Vector3.forward, true);
+                    else if (n == "BannerP1" || n == "BannerP2" || n == "FlagStripe") AddShaker(t, Vector3.up, true);
+                    else if (n == "ScrollPaper" || n == "Ink" || n == "Seal") AddShaker(t, Vector3.forward, true);
+                    break;
+                case Kind.Market:
+                    if (n == "Bowl" || n == "Bottle") loose.Add(new Loose { t = t, basePos = t.localPosition, baseRot = t.localRotation });
+                    else if (n == "Pot" || n == "SignBoard" || n == "Valance") AddShaker(t, Vector3.right, false);
+                    else if (n == "BannerP1" || n == "BannerP2" || n == "FlagStripe") AddShaker(t, Vector3.up, true);
+                    break;
+            }
+        }
+        lanternKick = new float[lanterns.Length];
+        impactReady = true;
+    }
+
+    void AddShaker(Transform t, Vector3 axis, bool rotate)
+    {
+        shakers.Add(new Shaker { t = t, basePos = t.localPosition, baseRot = t.localRotation, axis = axis, rotate = rotate, phase = R(0f, 6.28f) });
+    }
+
+    /// <summary>worldPos: çarpma noktası, strength: 0..1</summary>
+    void Impact(Vector3 worldPos, float strength)
+    {
+        if (!impactReady || !isActiveAndEnabled) return;
+        strength = Mathf.Clamp01(strength) * impactAmount;
+        Vector3 p = transform.InverseTransformPoint(worldPos);
+        bool side = Mathf.Abs(p.x) > Fighter.StageHalfWidth - 0.6f && p.y > 0.3f;   // kenara savrulma (yere düşme değil)
+
+        // Yakındaki parçalar daha çok sallanır
+        foreach (var s in shakers)
+        {
+            if (s.t == null) continue;
+            float dx = Mathf.Abs(s.basePos.x - p.x);
+            float near = Mathf.Clamp01(1.2f - dx / 6f);
+            if (kind == Kind.Boxing && s.t.name != "RopeBack")
+                near = Mathf.Sign(s.basePos.x) == Mathf.Sign(p.x) ? (side ? 1f : 0.4f) : 0.15f;
+            s.amp = Mathf.Max(s.amp, strength * near);
+        }
+
+        switch (kind)
+        {
+            case Kind.Dojo:
+                for (int i = 0; i < lanterns.Length; i++)
+                {
+                    if (lanterns[i] == null) continue;
+                    float near = Mathf.Clamp01(1.3f - Mathf.Abs(lanterns[i].localPosition.x - p.x) / 6f);
+                    lanternKick[i] = Mathf.Max(lanternKick[i], strength * near * 18f);
+                }
+                // Tavandan yaprak dökülsün
+                int drop = Mathf.RoundToInt(strength * 8f);
+                foreach (var pt in petals)
+                {
+                    if (drop <= 0) break;
+                    if (pt.rest <= 0f && pt.pos.y < 3f) continue;
+                    pt.pos = new Vector3(p.x + R(-2f, 2f), R(3.6f, 4.6f), R(1f, 4f));
+                    pt.rest = 0f;
+                    pt.fall = R(0.5f, 0.9f);
+                    drop--;
+                }
+                Debris(p, strength, new Color(0.55f, 0.4f, 0.25f));
+                break;
+
+            case Kind.Market:
+                // Kaseler ve şişeler tezgâhtan zıplayıp düşer
+                foreach (var l in loose)
+                {
+                    if (l.t == null || l.flying || l.fallen) continue;
+                    float dx = Mathf.Abs(l.basePos.x - p.x);
+                    float chance = strength * Mathf.Clamp01(1.4f - dx / 4f);
+                    if (rng.NextDouble() > chance) continue;
+                    l.flying = true;
+                    l.pos = l.t.localPosition;
+                    l.vel = new Vector3(R(-0.8f, 0.8f), R(1.8f, 3.4f) * (0.6f + strength), R(-1.6f, -0.6f));
+                    l.spin = new Vector3(R(-500f, 500f), R(-300f, 300f), R(-500f, 500f));
+                }
+                Debris(p, strength, new Color(0.45f, 0.45f, 0.5f));
+                break;
+
+            case Kind.Rooftop:
+                Debris(p, strength, new Color(0.5f, 0.5f, 0.55f));
+                break;
+
+            default:
+                Debris(p, strength * 0.6f, new Color(0.85f, 0.85f, 0.9f));
+                break;
+        }
+    }
+
+    /// <summary>Çarpma noktasından saçılan küçük parçalar (toz, çakıl, talaş).</summary>
+    void Debris(Vector3 p, float strength, Color c)
+    {
+        int n = Mathf.RoundToInt(4 + strength * 8f);
+        var m = CFMaterials.Unlit(c);
+        for (int i = 0; i < n; i++)
+        {
+            var t = Part(transform, PrimitiveType.Cube, p, Vector3.one * R(0.04f, 0.09f), m);
+            float dir = p.x > 0f ? -1f : 1f;
+            bits.Add(new Bit { t = t, pos = new Vector3(p.x, Mathf.Max(0.05f, p.y - 0.6f), p.z), vel = new Vector3(dir * R(0.5f, 2.5f), R(1.5f, 4f) * (0.5f + strength), R(-1f, 1f)), life = R(0.6f, 1.1f) });
+        }
+    }
+
+    void UpdateImpacts(float t, float dt)
+    {
+        if (!impactReady) return;
+
+        foreach (var s in shakers)
+        {
+            if (s.t == null || s.amp <= 0.001f) continue;
+            float w = Mathf.Sin(t * 26f + s.phase) * s.amp;
+            if (s.rotate) s.t.localRotation = s.baseRot * Quaternion.AngleAxis(w * 14f, s.axis == Vector3.up ? Vector3.forward : s.axis);
+            else s.t.localPosition = s.basePos + s.axis * w * 0.12f;
+            s.amp = Mathf.MoveTowards(s.amp * Mathf.Exp(-3.5f * dt), 0f, dt * 0.02f);
+            if (s.amp <= 0.001f) { s.t.localPosition = s.basePos; s.t.localRotation = s.baseRot; }
+        }
+
+        for (int i = 0; i < lanternKick.Length && i < lanterns.Length; i++)
+        {
+            if (lanterns[i] == null || lanternKick[i] <= 0.01f) continue;
+            lanterns[i].localRotation *= Quaternion.Euler(0f, 0f, Mathf.Sin(t * 5.5f + i) * lanternKick[i]);
+            lanternKick[i] *= Mathf.Exp(-1.2f * dt);
+        }
+
+        foreach (var l in loose)
+        {
+            if (l.t == null || !l.flying) continue;
+            l.vel.y -= 14f * dt;
+            l.pos += l.vel * dt;
+            l.t.localRotation *= Quaternion.Euler(l.spin * dt);
+            if (l.pos.y <= 0.06f && l.vel.y < 0f)
+            {
+                l.pos.y = 0.06f;
+                if (Mathf.Abs(l.vel.y) > 1.5f) { l.vel.y *= -0.3f; l.vel.x *= 0.5f; l.vel.z *= 0.5f; l.spin *= 0.4f; }
+                else
+                {
+                    l.flying = false;
+                    l.fallen = true;
+                    l.t.localRotation = Quaternion.Euler(90f, R(0f, 360f), 0f);
+                }
+            }
+            l.t.localPosition = l.pos;
+        }
+
+        for (int i = bits.Count - 1; i >= 0; i--)
+        {
+            var b = bits[i];
+            b.age += dt;
+            if (b.t == null || b.age >= b.life) { if (b.t != null) Destroy(b.t.gameObject); bits.RemoveAt(i); continue; }
+            b.vel.y -= 12f * dt;
+            b.pos += b.vel * dt;
+            if (b.pos.y < 0.02f) { b.pos.y = 0.02f; b.vel *= 0.4f; }
+            b.t.localPosition = b.pos;
+            b.t.localScale = Vector3.one * 0.07f * (1f - b.age / b.life);
+        }
+    }
+
+    #endregion
+
 }

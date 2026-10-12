@@ -197,6 +197,72 @@ public class FightFX : MonoBehaviour
         Play(sLand, Random.Range(0.9f, 1.1f));
     }
 
+    #region Özel hareket, fırlatma, sahne
+
+    /// <summary>Özel hareket başladı: hareketin renginde kısa patlama + süper sesi (tiz).</summary>
+    public void OnSpecialStart(Vector3 p, Color c)
+    {
+        AddHitstop(4);
+        SpawnSpark(p, c, 0.75f, 12);
+        SpawnSpark(p, Color.white, 0.3f, 6);
+        Play(sSuper, 1.45f, 0.55f);
+    }
+
+    /// <summary>Özel hareket sürerken iz (alev, plazma, yaprak...).</summary>
+    public void OnSpecialTrail(Vector3 p, Color c)
+    {
+        SpawnSpark(p, c, 0.28f, 4);
+    }
+
+    /// <summary>Kaybolma / belirme (SHADOW STEP), mermi sönmesi.</summary>
+    public void OnVanish(Vector3 p, Color c)
+    {
+        SpawnSpark(p, c, 0.9f, 14);
+        SpawnSpark(p, new Color(0.1f, 0.05f, 0.15f), 0.6f, 8);
+        Play(sWhiff, 0.6f, 0.6f);
+    }
+
+    /// <summary>METEOR SLAM yere çarptı.</summary>
+    public void OnSlam(Vector3 p, Color c)
+    {
+        Shake(0.22f);
+        SpawnSpark(p, c, 1.2f, 16);
+        SpawnSpark(p, new Color(0.6f, 0.55f, 0.5f), 0.8f, 10);
+        Play(sBoom, 1.2f, 0.8f);
+        Play(sLand, 0.8f);
+    }
+
+    /// <summary>Fırlatma: rakip yakalandı.</summary>
+    public void OnThrowGrab(Vector3 p)
+    {
+        AddHitstop(5);
+        Shake(0.04f);
+        SpawnSpark(p, new Color(1f, 0.95f, 0.8f), 0.35f, 6);
+        Play(sHitLight, 0.7f);
+    }
+
+    /// <summary>Fırlatma kırıldı.</summary>
+    public void OnThrowBreak(Vector3 p)
+    {
+        AddHitstop(8);
+        Shake(0.08f);
+        SpawnSpark(p, new Color(0.4f, 0.9f, 1f), 0.8f, 12);
+        SpawnSpark(p, Color.white, 0.4f, 6);
+        Play(sBlock, 0.8f);
+        Play(sBlock, 1.3f, 0.7f);
+    }
+
+    /// <summary>Dövüşçü sahne kenarına çarptı.</summary>
+    public void OnWallHit(Vector3 p, float strength)
+    {
+        Shake(0.05f + 0.12f * strength);
+        SpawnSpark(p, new Color(0.85f, 0.8f, 0.7f), 0.3f + 0.4f * strength, 6 + Mathf.RoundToInt(6 * strength));
+        Play(sLand, 1.15f, 0.6f + 0.4f * strength);
+        ArcadeAmbience.CheerAll(0.8f);
+    }
+
+    #endregion
+
     public void PlayBlip() { Play(sBlip, 1f); }
     public void PlayFight() { Play(sFight, 1f); }
     public void PlayMenuMove() { Play(sMenuMove, 1f); }

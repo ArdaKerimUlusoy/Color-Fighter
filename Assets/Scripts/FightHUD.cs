@@ -369,7 +369,10 @@ public class FightHUD : MonoBehaviour
         stageGroup.transform.SetSiblingIndex(modeGroup.transform.GetSiblingIndex() + 1);
         BuildPads(canvasRoot);
         padsGroup.transform.SetSiblingIndex(stageGroup.transform.GetSiblingIndex() + 1);
+        BuildHowTo(canvasRoot);
+        howToGroup.transform.SetSiblingIndex(padsGroup.transform.GetSiblingIndex() + 1);
         BuildKO(canvasRoot);
+        BuildSpecialCallouts(fightRoot);
 
         // Bitirici adı: ekranın üstünde, sağlık barlarının altında
         finisherText = Txt(fightRoot, "FinisherName", new Vector2(0, 1), new Vector2(1, 1), new Vector2(0, -74), new Vector2(0, -54), 15, TextAnchor.MiddleCenter, Color.white);
@@ -513,6 +516,7 @@ public class FightHUD : MonoBehaviour
         selName1 = Txt(root, "SelName1", Vector2.zero, Vector2.zero, new Vector2(8, 20), new Vector2(150, 38), 15, TextAnchor.MiddleLeft, Color.white);
         selStatus1 = Txt(root, "SelStatus1", Vector2.zero, Vector2.zero, new Vector2(8, 6), new Vector2(150, 18), 8, TextAnchor.MiddleLeft, Color.white);
         selName2 = Txt(root, "SelName2", new Vector2(1, 0), new Vector2(1, 0), new Vector2(-150, 20), new Vector2(-8, 38), 15, TextAnchor.MiddleRight, Color.white);
+        BuildSelectSpecials(root);
         selStatus2 = Txt(root, "SelStatus2", new Vector2(1, 0), new Vector2(1, 0), new Vector2(-150, 6), new Vector2(-8, 18), 8, TextAnchor.MiddleRight, Color.white);
 
         selectGroup.SetActive(false);
@@ -1065,6 +1069,7 @@ public class FightHUD : MonoBehaviour
             cellTag2[i].enabled = h2;
         }
 
+        RefreshSelectSpecials();
         SetSelPanel(selName1, selStatus1, selCur1, selLock1, now < deny1Until, blink, "1P ");
         if (cpuMode && !selShowCur2)
         {
@@ -1096,6 +1101,117 @@ public class FightHUD : MonoBehaviour
 
     #region Güncelleme
 
+    #region Özel hareket yazısı ve "HOW TO PLAY" kartı
+
+    Text specialText1, specialText2, selSpecial1, selSpecial2;
+    float specialAt1 = -10f, specialAt2 = -10f;
+    GameObject howToGroup;
+    Text howToKeys1, howToKeys2, howToSpecial1, howToSpecial2, howToPrompt;
+    float howToShownAt;
+
+    void BuildSpecialCallouts(RectTransform fightRoot)
+    {
+        specialText1 = Txt(fightRoot, "Special1", new Vector2(0, 0.5f), new Vector2(0, 0.5f), new Vector2(8, 42), new Vector2(170, 58), 11, TextAnchor.MiddleLeft, Color.white);
+        specialText2 = Txt(fightRoot, "Special2", new Vector2(1, 0.5f), new Vector2(1, 0.5f), new Vector2(-170, 42), new Vector2(-8, 58), 11, TextAnchor.MiddleRight, Color.white);
+        foreach (var t in new[] { specialText1, specialText2 })
+        {
+            t.fontStyle = FontStyle.BoldAndItalic;
+            t.enabled = false;
+        }
+    }
+
+    /// <summary>Özel hareketin adı, yapan oyuncunun tarafında kısa süre görünür.</summary>
+    public void ShowSpecialName(int side, string name, Color c)
+    {
+        var t = side == 0 ? specialText1 : specialText2;
+        if (t == null) return;
+        t.text = name + "!";
+        t.color = Color.Lerp(c, Color.white, 0.3f);
+        t.enabled = true;
+        t.rectTransform.localScale = Vector3.one * 1.6f;
+        if (side == 0) specialAt1 = Time.unscaledTime; else specialAt2 = Time.unscaledTime;
+    }
+
+    void UpdateSpecialCallout(Text t, float shownAt, float dt)
+    {
+        if (t == null || !t.enabled) return;
+        float age = Time.unscaledTime - shownAt;
+        t.rectTransform.localScale = Vector3.Lerp(t.rectTransform.localScale, Vector3.one, 1f - Mathf.Exp(-14f * dt));
+        var c = t.color;
+        c.a = Mathf.Clamp01(1.6f - age);
+        t.color = c;
+        if (age > 1.6f) t.enabled = false;
+    }
+
+    /// <summary>Seçim ekranında, seçili rengin özel hareketinin adı.</summary>
+    void BuildSelectSpecials(RectTransform root)
+    {
+        selSpecial1 = Txt(root, "SelSpecial1", Vector2.zero, Vector2.zero, new Vector2(8, 38), new Vector2(170, 47), 7, TextAnchor.MiddleLeft, new Color(0.85f, 0.85f, 0.9f));
+        selSpecial2 = Txt(root, "SelSpecial2", new Vector2(1, 0), new Vector2(1, 0), new Vector2(-170, 38), new Vector2(-8, 47), 7, TextAnchor.MiddleRight, new Color(0.85f, 0.85f, 0.9f));
+    }
+
+    void RefreshSelectSpecials()
+    {
+        if (selSpecial1 != null) selSpecial1.text = "SPECIAL: " + SpecialMoves.NameOf(selCur1) + "  (↓ → + PUNCH)";
+        if (selSpecial2 != null) selSpecial2.text = (cpuMode && !selShowCur2) ? "" : "(↓ → + PUNCH)  SPECIAL: " + SpecialMoves.NameOf(selCur2);
+    }
+
+    void BuildHowTo(RectTransform parent)
+    {
+        var root = Rect("HowToUI", parent, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
+        howToGroup = root.gameObject;
+        var mid = new Vector2(0.5f, 0.5f);
+        Img(Rect("Dim", root, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero), new Color(0f, 0f, 0.03f, 0.6f));
+        Img(Rect("Frame", root, mid, mid, new Vector2(-136, -86), new Vector2(136, 86)), new Color(1f, 0.85f, 0.2f, 0.9f));
+        Img(Rect("Panel", root, mid, mid, new Vector2(-134, -84), new Vector2(134, 84)), new Color(0.04f, 0.02f, 0.1f, 0.97f));
+
+        var title = Txt(root, "HowToTitle", mid, mid, new Vector2(-134, 62), new Vector2(134, 82), 15, TextAnchor.MiddleCenter, new Color(1f, 0.85f, 0.2f));
+        title.text = "HOW TO PLAY";
+
+        // Satırlar: başlık (sol) + açıklama (sağ)
+        Row(root, 46, "THROW", "PUNCH + KICK  (CLOSE TO OPPONENT)", new Color(1f, 0.55f, 0.3f));
+        howToKeys1 = Txt(root, "Keys1", mid, mid, new Vector2(-70, 25), new Vector2(0, 35), 7, TextAnchor.MiddleLeft, Cursor1);
+        howToKeys2 = Txt(root, "Keys2", mid, mid, new Vector2(0, 25), new Vector2(130, 35), 7, TextAnchor.MiddleLeft, Cursor2);
+        Row(root, 12, "", "HOLD BACK + PUNCH + KICK = THROW BEHIND", new Color(0.75f, 0.75f, 0.8f));
+        Row(root, -6, "BREAK", "PRESS PUNCH + KICK RIGHT WHEN GRABBED", new Color(0.4f, 0.9f, 1f));
+        Row(root, -26, "SPECIAL", "↓  →  + PUNCH   (EVERY COLOR HAS ITS OWN)", new Color(0.7f, 1f, 0.5f));
+        howToSpecial1 = Txt(root, "Special1", mid, mid, new Vector2(-70, -45), new Vector2(0, -35), 7, TextAnchor.MiddleLeft, Cursor1);
+        howToSpecial2 = Txt(root, "Special2", mid, mid, new Vector2(0, -45), new Vector2(130, -35), 7, TextAnchor.MiddleLeft, Cursor2);
+        Row(root, -58, "BLOCK", "HOLD BACK  (CROUCH FOR LOW ATTACKS)", new Color(0.8f, 0.8f, 0.85f));
+
+        howToPrompt = Txt(root, "HowToPrompt", mid, mid, new Vector2(-134, -82), new Vector2(134, -70), 9, TextAnchor.MiddleCenter, Color.white);
+        howToPrompt.text = "PRESS PUNCH TO FIGHT!";
+        howToGroup.SetActive(false);
+    }
+
+    void Row(RectTransform root, float y, string head, string body, Color c)
+    {
+        var mid = new Vector2(0.5f, 0.5f);
+        if (!string.IsNullOrEmpty(head))
+            Txt(root, "Head_" + head, mid, mid, new Vector2(-128, y - 7), new Vector2(-74, y + 7), 10, TextAnchor.MiddleLeft, c).text = head;
+        Txt(root, "Body_" + head + y, mid, mid, new Vector2(-70, y - 6), new Vector2(132, y + 6), 8, TextAnchor.MiddleLeft, Color.white).text = body;
+    }
+
+    /// <summary>İlk maçtan önce tuş anlatımı. keys: o oyuncunun fırlatma tuşları (ör. "F + G" ya da "□ + X").</summary>
+    public void ShowHowTo(bool on, string keys1 = "", string keys2 = "", int style1 = 0, int style2 = 0, bool cpu = false)
+    {
+        if (howToGroup == null) return;
+        howToGroup.SetActive(on);
+        if (!on) return;
+        titleGroup.SetActive(false);
+        fightGroup.SetActive(false);
+        if (selectGroup != null) selectGroup.SetActive(false);
+        if (stageGroup != null) stageGroup.SetActive(false);
+        centerText.enabled = false;
+        howToShownAt = Time.unscaledTime;
+        howToKeys1.text = "1P: " + keys1;
+        howToKeys2.text = cpu ? "" : "2P: " + keys2;
+        howToSpecial1.text = "1P: " + SpecialMoves.NameOf(style1);
+        howToSpecial2.text = (cpu ? "CPU: " : "2P: ") + SpecialMoves.NameOf(style2);
+    }
+
+    #endregion
+
     void Update()
     {
         float dt = Time.unscaledDeltaTime;
@@ -1115,6 +1231,10 @@ public class FightHUD : MonoBehaviour
         }
         UpdateCombo(combo1, comboHide1, dt);
         UpdateCombo(combo2, comboHide2, dt);
+        UpdateSpecialCallout(specialText1, specialAt1, dt);
+        UpdateSpecialCallout(specialText2, specialAt2, dt);
+        if (howToGroup != null && howToGroup.activeSelf && howToPrompt != null)
+            howToPrompt.enabled = Time.unscaledTime - howToShownAt > 1f && Mathf.Repeat(Time.unscaledTime, 0.8f) < 0.55f;
 
         flashA = Mathf.MoveTowards(flashA, 0f, dt * 2.5f);
         flash.color = new Color(flashColor.r, flashColor.g, flashColor.b, flashA);

@@ -2,7 +2,7 @@ using UnityEngine;
 
 public enum HitLevel { Mid, Low, High }
 
-public enum AttackPose { StandPunch, StandKick, CrouchPunch, CrouchKick, AirPunch, AirKick, ComboRushA, ComboRushB, ComboFinisher }
+public enum AttackPose { StandPunch, StandKick, CrouchPunch, CrouchKick, AirPunch, AirKick, ComboRushA, ComboRushB, ComboFinisher, Special, Throw }
 
 [System.Serializable]
 public class MoveData
@@ -58,6 +58,24 @@ public class MoveData
     public bool cancelable = false;
     [Tooltip("Kombo saldırısı (Color Rush) parçası: hasar ölçeklenmez, bloklansa da biraz hasar verir.")]
     public bool isSuper = false;
+
+    #endregion
+
+    #region Özel hareket / fırlatma (kodla kurulur, sahneye kaydedilmez)
+
+    /// <summary>Özel hareketin kendi pozları (12 değer, FighterRig tablosu). Boşsa saldırı türüne göre seçilir.</summary>
+    [System.NonSerialized] public float[] windPose, hitPose;
+    /// <summary>Hazırlık + aktif süresince gövdenin toplam dönüşü (derece) ve takla açısı.</summary>
+    [System.NonSerialized] public float spin, flip;
+    /// <summary>Hareket başında yukarı zıplama hızı (0 = yerde kalır).</summary>
+    [System.NonSerialized] public float hop;
+    /// <summary>Çok vuruşlu hareket: toplam isabet sayısı ve isabetler arası frame.</summary>
+    [System.NonSerialized] public int hits = 1, hitEvery = 6;
+    [System.NonSerialized] public bool isSpecial, isThrow, isProjectile;
+    /// <summary>Özel hareketin türü (SpecialMoves.Kind).</summary>
+    [System.NonSerialized] public int specialKind;
+    /// <summary>Efekt rengi (alev, plazma, yaprak...).</summary>
+    [System.NonSerialized] public Color fxColor = Color.white;
 
     #endregion
 

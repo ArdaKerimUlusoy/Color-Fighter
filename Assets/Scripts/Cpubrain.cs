@@ -31,7 +31,8 @@ public class CpuBrain : MonoBehaviour
     FighterInput input;
 
     int holdDir, holdDirFrames, holdDown, holdDownFrames;
-    int pressPunch, pressKick, pressCombo, pressUp;
+    int pressPunch, pressKick, pressCombo, pressUp, pressSpecial;
+    int techDelay = -1;
     int actCooldown, planFrames;
     int reactedAttackFrame = -1, reactedJumpFrame = -1;
     MoveData reactedMove;
@@ -83,6 +84,17 @@ public class CpuBrain : MonoBehaviour
             return;
         }
 
+        // Tutulduysa (bazen) yumruk + tekme ile fýrlatmayý kýr; insan gibi biraz gecikmeyle
+        if (self.BeingThrown)
+        {
+            if (techDelay < 0) techDelay = Roll(Mathf.Lerp(0.15f, 0.6f, difficulty)) ? Range(2, 9) : 999;
+            if (techDelay-- == 0) { Press(ref pressPunch); Press(ref pressKick); }
+            TickHolds();
+            Emit();
+            return;
+        }
+        techDelay = -1;
+
         TickHolds();
         if (perception.Count > ReactionFrames)
             Think(perception.Peek());
@@ -131,6 +143,11 @@ public class CpuBrain : MonoBehaviour
         if (counterReady)
         {
             counterReady = false;
+            if (dist < 1.1f && Roll(Mathf.Lerp(0.15f, 0.35f, difficulty)))
+            {
+                Throw();   // blok yapan rakibi fýrlatmayla kýr
+                return;
+            }
             if (dist < 1.5f && Roll(Mathf.Lerp(0.35f, 0.85f, difficulty)))
             {
                 Press(ref pressPunch);
@@ -166,6 +183,8 @@ public class CpuBrain : MonoBehaviour
             if (reactedJumpFrame < 0)
             {
                 reactedJumpFrame = 1;
+                bool antiAirSpecial = MyKind == SpecialMoves.Kind.ThunderKnee || MyKind == SpecialMoves.Kind.SakuraFlip;
+                if (antiAirSpecial && dist < 1.8f && Roll(AntiAirChance * 0.7f)) { Special(); return; }
                 if (Roll(AntiAirChance)) { Press(ref pressKick); actCooldown = Range(14, 24); return; }
                 if (Roll(BlockChance)) { Hold(-toward, 12); return; }
             }
@@ -176,7 +195,14 @@ public class CpuBrain : MonoBehaviour
         bool oppRecovering = o.state == FState.Attack && o.move != null && o.stateFrame > o.move.startup + o.move.active;
         if (oppRecovering && dist < 1.7f && actCooldown <= 0 && Roll(Mathf.Lerp(0.2f, 0.7f, difficulty)))
         {
-            Attack(dist, true);
+            if (Roll(0.3f)) Special(); else Attack(dist, true);
+            return;
+        }
+
+        // 4c) Özel hareket: mesafeye uygunsa arada bir
+        if (actCooldown <= 0 && SpecialFits(dist) && Roll(Mathf.Lerp(0.015f, 0.04f, difficulty)))
+        {
+            Special();
             return;
         }
 
@@ -226,6 +252,9 @@ public class CpuBrain : MonoBehaviour
         }
         else
         {
+            // Yakýnda hep blok yapan / bekleyen rakibi fýrlat
+            bool oppPassive = o.state == FState.Guard || o.state == FState.Idle || o.state == FState.Crouch || o.state == FState.Walk;
+            if (dist < 1.05f && oppPassive && actCooldown <= 0 && Roll(Mathf.Lerp(0.1f, 0.25f, difficulty) + Mathf.Clamp01(aggression * 0.02f))) { Throw(); return; }
             if (actCooldown <= 0 && Roll(0.55f)) { Attack(dist, false); return; }
             float r = (float)rng.NextDouble();
             if (r < 0.35f) { Hold(-toward, Range(4, 10)); HoldDown(Range(4, 10)); }   // çömelip bekle
@@ -278,6 +307,38 @@ public class CpuBrain : MonoBehaviour
         planFrames = 0;
     }
 
+    SpecialMoves.Kind MyKind => (SpecialMoves.Kind)(((self.styleIndex % 8) + 8) % 8);
+
+    /// <summary>Bu rengin özel hareketi bu mesafede mantýklý mý?</summary>
+    bool SpecialFits(float dist)
+    {
+        switch (MyKind)
+        {
+            case SpecialMoves.Kind.PlasmaShot: return dist > 2f && !self.ProjectileAlive;
+            case SpecialMoves.Kind.ShadowStep: return dist > 1.5f;
+            case SpecialMoves.Kind.FlameFist:
+            case SpecialMoves.Kind.ShoulderCharge: return dist > 1.2f && dist < 2.8f;
+            case SpecialMoves.Kind.MeteorSlam: return dist > 1.4f && dist < 3f;
+            case SpecialMoves.Kind.CycloneKick: return dist < 2f;
+            default: return dist < 1.6f;
+        }
+    }
+
+    void Special()
+    {
+        Press(ref pressSpecial);
+        actCooldown = Range(Mathf.RoundToInt(Mathf.Lerp(50, 25, difficulty)), Mathf.RoundToInt(Mathf.Lerp(90, 50, difficulty)));
+        planFrames = 0;
+    }
+
+    void Throw()
+    {
+        Press(ref pressPunch);
+        Press(ref pressKick);
+        actCooldown = Range(25, 45);
+        planFrames = 0;
+    }
+
     void Jump(int dir)
     {
         Hold(dir, 4);
@@ -310,6 +371,7 @@ public class CpuBrain : MonoBehaviour
         input.cpuKick = Step(ref pressKick);
         input.cpuCombo = Step(ref pressCombo);
         input.cpuUp = Step(ref pressUp);
+        input.cpuSpecial = Step(ref pressSpecial);
     }
 
     static bool Step(ref int counter)
@@ -322,10 +384,10 @@ public class CpuBrain : MonoBehaviour
     void ReleaseAll()
     {
         holdDir = 0; holdDown = 0; holdDirFrames = holdDownFrames = 0;
-        pressPunch = pressKick = pressCombo = pressUp = -2;
+        pressPunch = pressKick = pressCombo = pressUp = pressSpecial = -2;
         planFrames = 0;
         if (input != null)
-            input.cpuLeft = input.cpuRight = input.cpuDown = input.cpuUp = input.cpuPunch = input.cpuKick = input.cpuCombo = false;
+            input.cpuLeft = input.cpuRight = input.cpuDown = input.cpuUp = input.cpuPunch = input.cpuKick = input.cpuCombo = input.cpuSpecial = false;
     }
 
     #endregion
