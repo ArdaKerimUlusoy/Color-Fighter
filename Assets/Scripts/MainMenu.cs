@@ -51,6 +51,17 @@ public class MainMenu : MonoBehaviour
     [Tooltip("ESC ile ana menüye dönerken kameranın kabinden geriye çekilme süresi (sn).")]
     public float zoomOutDuration = 1.8f;
 
+    [Header("Oyun görünümü")]
+    [Tooltip("Oyun sırasında kamera kabin ekranına yaklaşır, dövüş ekranı büyük görünür. " +
+             "Oyunda V tuşu (ya da kolun sağ analoğuna basmak) yakın görünüm ile kabin görünümü arasında geçiş yapar.")]
+    public bool closeGameView = false;
+    [Tooltip("Oyun sırasında kameranın sahnedeki açısına göre ne kadar yukarı bakacağı (derece).")]
+    public float gameViewPitchUp = 3f;
+    [Tooltip("Yakın görünümde kabin ekranının görüntü yüksekliğini ne kadar dolduracağı.")]
+    [Range(0.5f, 1f)] public float screenFill = 0.86f;
+    [Tooltip("Yakın ve kabin görünümü arasındaki geçiş süresi (sn).")]
+    public float viewSwitchDuration = 0.45f;
+
     [Header("Jeton çekimi")]
     [Tooltip("PLAY'den sonra kameranın jeton deliğine yaklaşma süresi (sn).")]
     public float coinShotIn = 1.3f;
@@ -74,6 +85,13 @@ public class MainMenu : MonoBehaviour
     float gameFov, startFov, zoomT, menuTime;
     Vector2 look;
 
+    // Oyun görünümü: sahnedeki kamera yeri (kabin görünümü) ve ekrana yakın görünüm
+    static bool cabinetView;
+    Vector3 cabPos, closePos, viewFromPos;
+    Quaternion cabRot, closeRot, viewFromRot;
+    float cabFov, closeFov, viewFromFov, viewT = -1f;
+    bool hasClose;
+
     GameObject ui;
     CanvasGroup uiGroup;
     RectTransform[] buttons;
@@ -93,12 +111,17 @@ public class MainMenu : MonoBehaviour
     {
         if (cameFromMenu) { cameFromMenu = false; showMainMenu = false; }
         cam = Camera.main;
-        if (!showMainMenu || cam == null) { Active = false; state = State.Done; return; }
+        if (cam != null) SetupGameViews();
+        if (!showMainMenu || cam == null)
+        {
+            Active = false;
+            state = State.Done;
+            if (cam != null) ApplyGameView();   // oyun kamerasını seçili görünüme koy
+            return;
+        }
 
-        // Oyun kamerasının yerini hatırla (zoom buraya biter)
-        gamePos = cam.transform.position;
-        gameRot = cam.transform.rotation;
-        gameFov = cam.fieldOfView;
+        // Oyun kamerasının yerini hatırla (zoom buraya biter): seçili oyun görünümü
+        GameView(out gamePos, out gameRot, out gameFov);
 
         sway = cam.GetComponent<CameraSway>();
         if (sway != null) sway.enabled = false;   // menüde kamerayı biz yönetiyoruz
@@ -171,6 +194,7 @@ public class MainMenu : MonoBehaviour
 
     void Update()
     {
+        if (state == State.Done && !Active) UpdateGameView();
         if (state == State.Menu)
         {
             menuTime += Time.unscaledDeltaTime;
@@ -265,6 +289,88 @@ public class MainMenu : MonoBehaviour
     }
 
     static float Smoother(float k) { return k * k * k * (k * (k * 6f - 15f) + 10f); }
+
+    #region Oyun görünümü (yakın / kabin)
+
+    /// <summary>Sahnedeki kamera yerini kabin görünümü olarak saklar, kabin ekranına bakan yakın görünümü hesaplar.</summary>
+    void SetupGameViews()
+    {
+        cabPos = cam.transform.position;
+        cabRot = cam.transform.rotation * Quaternion.Euler(-gameViewPitchUp, 0f, 0f);   // biraz yukarı bak
+        cabFov = cam.fieldOfView;
+        hasClose = false;
+
+        var cab = GameObject.Find("ArcadeCabinet");
+        var screen = cab != null ? cab.transform.Find("Screen") : null;
+        if (screen == null) return;
+
+        closeFov = cabFov;
+        float h = Mathf.Abs(screen.lossyScale.y), w = Mathf.Abs(screen.lossyScale.x);
+        float tan = Mathf.Tan(closeFov * 0.5f * Mathf.Deg2Rad);
+        float aspect = cam.aspect > 0.1f ? cam.aspect : 16f / 9f;
+        // Ekran yüksekliği görüntünün screenFill kadarını kaplasın; dar pencerede genişliğe sığdır
+        float d = h / Mathf.Max(0.3f, screenFill) * 0.5f / tan;
+        d = Mathf.Max(d, w / 0.96f * 0.5f / (tan * aspect));
+        // Unity Quad'ı -Z yönüne bakar: kamera ekranın önünde, ekrana doğru bakar
+        closePos = screen.position - screen.forward * d;
+        closeRot = Quaternion.LookRotation(screen.forward, screen.up);
+        hasClose = true;
+    }
+
+    bool UseClose => closeGameView && hasClose && !cabinetView;
+
+    void GameView(out Vector3 pos, out Quaternion rot, out float fov)
+    {
+        if (UseClose) { pos = closePos; rot = closeRot; fov = closeFov; }
+        else { pos = cabPos; rot = cabRot; fov = cabFov; }
+    }
+
+    void ApplyGameView()
+    {
+        GameView(out var p, out var r, out var f);
+        cam.transform.SetPositionAndRotation(p, r);
+        cam.fieldOfView = f;
+        RebaseSway();
+    }
+
+    void RebaseSway()
+    {
+        if (sway == null) sway = cam.GetComponent<CameraSway>();
+        if (sway != null) { sway.Rebase(); sway.enabled = true; }
+    }
+
+    /// <summary>Oyunda V / sağ analoğa basma: yakın görünüm ile kabin görünümü arasında yumuşak geçiş.</summary>
+    void UpdateGameView()
+    {
+        if (cam == null || !hasClose || !closeGameView) return;
+        var kb = Keyboard.current;
+        bool toggle = kb != null && kb.vKey.wasPressedThisFrame;
+        foreach (var gp in Gamepad.all) if (gp != null && gp.rightStickButton.wasPressedThisFrame) toggle = true;
+        if (toggle && !MatchManager.Paused)
+        {
+            cabinetView = !cabinetView;
+            viewFromPos = cam.transform.position;
+            viewFromRot = cam.transform.rotation;
+            viewFromFov = cam.fieldOfView;
+            viewT = 0f;
+            if (sway == null) sway = cam.GetComponent<CameraSway>();
+            if (sway != null) sway.enabled = false;
+        }
+        if (viewT < 0f) return;
+
+        viewT += Time.unscaledDeltaTime / Mathf.Max(0.05f, viewSwitchDuration);
+        float e = Smoother(Mathf.Clamp01(viewT));
+        GameView(out var p, out var r, out var f);
+        cam.transform.SetPositionAndRotation(Vector3.Lerp(viewFromPos, p, e), Quaternion.Slerp(viewFromRot, r, e));
+        cam.fieldOfView = Mathf.Lerp(viewFromFov, f, e);
+        if (viewT >= 1f)
+        {
+            viewT = -1f;
+            RebaseSway();
+        }
+    }
+
+    #endregion
 
     void StartZoom()
     {

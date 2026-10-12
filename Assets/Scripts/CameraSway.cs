@@ -16,9 +16,20 @@ public class CameraSway : MonoBehaviour
 
     void Start()
     {
+        if (rebased) return;
         basePos = transform.position;
         baseRot = transform.rotation;
     }
+
+    /// <summary>Kamera başka bir yere taşındıysa salınımın merkezini oraya al.</summary>
+    public void Rebase()
+    {
+        basePos = transform.position;
+        baseRot = transform.rotation;
+        rebased = true;
+    }
+
+    bool rebased;
 
     void LateUpdate()
     {

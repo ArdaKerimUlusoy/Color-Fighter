@@ -23,6 +23,12 @@ public class ArcadeVisuals : MonoBehaviour
     [Tooltip("Hafif film greni.")]
     [Range(0f, 1f)] public float filmGrain = 0.18f;
 
+    [Header("Kabin ekranı")]
+    [Tooltip("Kabindeki oyun ekranının büyüklüğü (1 = eski boyut). Kamera açısı değişmez, sadece ekran büyür.")]
+    [Range(1f, 1.3f)] public float screenScale = 1.22f;
+    [Tooltip("Ekranın merkezini bu kadar yukarı kaydırır (m), büyüyen ekran kontrol paneline değmesin.")]
+    public float screenRaise = 0.03f;
+
     [Header("Ekran ışığı")]
     [Tooltip("Kabin ekranının ışığı, ekranda ne varsa onun rengini ve parlaklığını alır.")]
     public bool reactiveScreenLight = true;
@@ -80,9 +86,33 @@ public class ArcadeVisuals : MonoBehaviour
 
     void Start()
     {
+        EnlargeScreen();
         SetupPost();
         SetupScreenLight();
         SetupExtras();
+    }
+
+    /// <summary>Ana kabinin ekranını (ve çerçevesini) büyütür. Kabin genişliğine sığacak şekilde sınırlanır.</summary>
+    void EnlargeScreen()
+    {
+        var cab = transform.Find("ArcadeCabinet");
+        if (cab == null) return;
+        var screen = cab.Find("Screen");
+        if (screen == null) return;
+        var bezel = cab.Find("Bezel");
+
+        // Yan panellerin arasına sığsın (kabin iç genişliği ~0.96 m)
+        Vector3 s = screen.localScale;
+        float k = Mathf.Min(screenScale, 0.94f / Mathf.Max(0.01f, s.x));
+        if (k <= 1.001f) return;
+        screen.localScale = new Vector3(s.x * k, s.y * k, s.z);
+        screen.localPosition += Vector3.up * screenRaise;
+        if (bezel != null)
+        {
+            Vector3 b = bezel.localScale;
+            bezel.localScale = new Vector3(Mathf.Min(0.99f, screen.localScale.x + (b.x - s.x)), screen.localScale.y + (b.y - s.y), b.z);
+            bezel.localPosition = new Vector3(bezel.localPosition.x, screen.localPosition.y, bezel.localPosition.z);
+        }
     }
 
     void SetupExtras()
